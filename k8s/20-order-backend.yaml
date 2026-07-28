@@ -1,0 +1,151 @@
+# The Order Backend - three identical replicas, one per app node. This is the
+# tier we attack.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: order-backend
+  namespace: rca4
+  labels:
+    app: order-backend
+spec:
+  replicas: 3
+  selector:
+    matchLabels:
+      app: order-backend
+  strategy:
+    type: RollingUpdate
+  template:
+    metadata:
+      labels:
+        app: order-backend
+    spec:
+      nodeSelector:
+        rca4-role: app
+      affinity:
+        podAntiAffinity:
+          # Spread one replica per node, so killing a node kills exactly one
+          # replica - the fault this scenario needs.
+          #
+          # "preferred" rather than "required" on purpose. With three replicas
+          # on three app nodes, a *required* rule leaves the replacement pod
+          # nowhere to go after we kill a node: it sits Pending forever and the
+          # system can never restabilize. Preferred spreads them one-per-node
+          # while all three nodes are healthy, and lets the replacement double
+          # up on a survivor while one is dead. Capacity comes back either way,
+          # because a replica's throughput is set by WORKER_SLOTS, not by how
+          # many other pods share its node.
+          preferredDuringSchedulingIgnoredDuringExecution:
+            - weight: 100
+              podAffinityTerm:
+                labelSelector:
+                  matchLabels:
+                    app: order-backend
+                topologyKey: kubernetes.io/hostname
+      # Kubernetes defaults to tolerating an unreachable node for 300 seconds
+      # before deleting its pods, which would stall the replacement replica for
+      # five minutes. Ten seconds is an aggressive but realistic fast-failover
+      # setting, and it keeps the recovery curve inside a single short run.
+      tolerations:
+        - key: node.kubernetes.io/unreachable
+          operator: Exists
+          effect: NoExecute
+          tolerationSeconds: 10
+        - key: node.kubernetes.io/not-ready
+          operator: Exists
+          effect: NoExecute
+          tolerationSeconds: 10
+      # No graceful drain - we want abrupt loss, not a polite shutdown.
+      terminationGracePeriodSeconds: 0
+      containers:
+        - name: order-backend
+          image: rca4-app:latest
+          # The image is side-loaded with `kind load docker-image`, so never
+          # try to pull it from a registry.
+          imagePullPolicy: IfNotPresent
+          command: ["python", "order_backend.py"]
+          env:
+            - name: POD_NAME
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.name
+            - name: NODE_NAME
+              valueFrom:
+                fieldRef:
+                  fieldPath: spec.nodeName
+            - name: OTLP_ENDPOINT
+              value: "http://jaeger:4317"
+            # Capacity per replica = WORKER_SLOTS / SERVICE_TIME_MS = 20 req/s,
+            # so three replicas serve 60 req/s and two serve 40 req/s.
+            #
+            # Losing one of three replicas multiplies utilisation by exactly
+            # 1.5x, and queue wait grows like rho/(1-rho). So the offered load
+            # has to be chosen with care:
+            #
+            #   36 req/s -> healthy rho = 0.60, wounded rho = 0.90. Stable
+            #               even while wounded, so the spike is only ~3x: real,
+            #               but underwhelming to look at.
+            #   42 req/s -> healthy rho = 0.70, wounded rho = 1.05. The two
+            #               survivors are just over capacity, so the backlog
+            #               grows for as long as the replacement takes to
+            #               arrive and then drains. This is what produces the
+            #               ramp-peak-decay curve the forecaster learns from.
+            #   48 req/s -> healthy rho = 0.80, wounded rho = 1.20. The queue
+            #               runs away and latency pins at the gateway timeout,
+            #               so the recovery has no shape left to learn.
+            #
+            # The load generator therefore defaults to 42 req/s. See the README.
+            - name: WORKER_SLOTS
+              value: "2"
+            - name: SERVICE_TIME_MS
+              value: "100"
+            # Simulated cold start. A replacement pod is scheduled in seconds
+            # but is not useful for this long, which is the bulk of the
+            # restabilization time the AI has to learn to predict.
+            - name: WARMUP_SECONDS
+              value: "15"
+          ports:
+            - name: http
+              containerPort: 8000
+          readinessProbe:
+            httpGet:
+              path: /healthz
+              port: 8000
+            initialDelaySeconds: 1
+            periodSeconds: 2
+            # Deliberately tolerant. A single slow probe reply must not pull a
+            # healthy replica out of the load balancer mid-brownout - that would
+            # concentrate even more load on the rest and turn the incident into
+            # a self-inflicted spiral. Detecting the *dead* node is the node
+            # controller's job, not this probe's, so being patient costs nothing.
+            timeoutSeconds: 3
+            failureThreshold: 2
+          livenessProbe:
+            httpGet:
+              path: /livez
+              port: 8000
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          resources:
+            requests:
+              cpu: 50m
+              memory: 64Mi
+            limits:
+              cpu: 500m
+              memory: 256Mi
+---
+# The load balancer in front of the three replicas. A ClusterIP Service is a
+# real L4 load balancer: kube-proxy programs iptables rules that spread new
+# connections across the Ready endpoints, and removes an endpoint as soon as
+# its pod stops being Ready.
+apiVersion: v1
+kind: Service
+metadata:
+  name: order-backend
+  namespace: rca4
+spec:
+  selector:
+    app: order-backend
+  ports:
+    - name: http
+      port: 8000
+      targetPort: 8000
