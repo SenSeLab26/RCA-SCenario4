@@ -1,0 +1,85 @@
+# The API Gateway - the single instrumented entry point the load generator hits,
+# and therefore our measuring instrument. It lives on the dedicated infra node:
+# the fault we inject into the app tier can never take it out, and it never has
+# to fight etcd or the apiserver for CPU while the control plane is busy
+# reacting to the node failure.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: api-gateway
+  namespace: rca4
+  labels:
+    app: api-gateway
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: api-gateway
+  template:
+    metadata:
+      labels:
+        app: api-gateway
+    spec:
+      nodeSelector:
+        rca4-role: infra
+      containers:
+        - name: api-gateway
+          image: rca4-app:latest
+          imagePullPolicy: IfNotPresent
+          command: ["python", "api_gateway.py"]
+          env:
+            - name: POD_NAME
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.name
+            - name: NODE_NAME
+              valueFrom:
+                fieldRef:
+                  fieldPath: spec.nodeName
+            - name: OTLP_ENDPOINT
+              value: "http://jaeger:4317"
+            - name: BACKEND_URL
+              value: "http://order-backend:8000/order"
+            # Requests aimed at the killed replica hang until this fires, so
+            # this value sets the height of the error plateau in the data.
+            #
+            # 5s rather than a tighter 2s for two measured reasons:
+            #  - kube-proxy's iptables DNAT occasionally loses a SYN under a
+            #    high rate of short-lived connections, and TCP retransmits at
+            #    ~1s and ~3s. A 2s budget turned those into a permanent floor
+            #    of fake "errors" in every second of the run, including while
+            #    the cluster was perfectly healthy.
+            #  - the brownout ramp peaks around 1.5s. A 2s ceiling clipped it,
+            #    so the curve saturated instead of showing its shape.
+            - name: BACKEND_TIMEOUT
+              value: "5.0"
+          ports:
+            - name: http
+              containerPort: 8080
+          readinessProbe:
+            httpGet:
+              path: /healthz
+              port: 8080
+            initialDelaySeconds: 2
+            periodSeconds: 5
+          resources:
+            requests:
+              cpu: 200m
+              memory: 128Mi
+            limits:
+              memory: 512Mi
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: api-gateway
+  namespace: rca4
+spec:
+  type: NodePort
+  selector:
+    app: api-gateway
+  ports:
+    - name: http
+      port: 8080
+      targetPort: 8080
+      nodePort: 30080
