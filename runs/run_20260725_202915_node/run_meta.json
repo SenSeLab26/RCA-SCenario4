@@ -1,0 +1,13 @@
+{
+  "run_id": "run_20260725_202915_node",
+  "url": "http://127.0.0.1:30080/order",
+  "rps": 42.0,
+  "duration_s": 300.0,
+  "workers": 192,
+  "client_timeout_s": 10.0,
+  "start_epoch": 1784982555.777079,
+  "end_epoch": 1784982861.2759502,
+  "chaos_at_offset_s": 60.0,
+  "chaos_mode": "node",
+  "fault_at": 1784982617.681943
+}

@@ -1,0 +1,24 @@
+{
+  "mode": "node",
+  "target_pod": "order-backend-84d78cc6d7-lvns4",
+  "target_node": "rca4-worker3",
+  "fault_at": 1784982617.681943,
+  "detail": "node container rca4-worker3 hard-killed (hosted order-backend-84d78cc6d7-lvns4)",
+  "replicas_before": [
+    {
+      "pod": "order-backend-84d78cc6d7-gmprk",
+      "node": "rca4-worker4",
+      "ready": true
+    },
+    {
+      "pod": "order-backend-84d78cc6d7-lvns4",
+      "node": "rca4-worker3",
+      "ready": true
+    },
+    {
+      "pod": "order-backend-84d78cc6d7-nzctx",
+      "node": "rca4-worker2",
+      "ready": true
+    }
+  ]
+}

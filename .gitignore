@@ -1,0 +1,16 @@
+# Virtual environments
+scene4/
+.scenario-venv/
+venv/
+.venv/
+
+# Python
+__pycache__/
+*.py[cod]
+
+# macOS
+.DS_Store
+
+# Raw Jaeger exports are large and regenerable from a run; the flattened
+# CSVs and the charts are small and worth keeping in the repo.
+runs/*/raw_trace_data.json

@@ -1,0 +1,16 @@
+# OpenTelemetry (tracing / instrumentation)
+opentelemetry-api==1.42.1
+opentelemetry-sdk==1.42.1
+opentelemetry-exporter-otlp==1.42.1
+
+# Data processing & ML
+pandas==3.0.3
+scikit-learn==1.9.0
+numpy==2.5.0
+scipy==1.18.0
+
+# Plotting
+matplotlib==3.11.1
+
+# HTTP
+requests==2.34.2
