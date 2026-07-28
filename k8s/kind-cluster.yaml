@@ -1,0 +1,55 @@
+# kind cluster for Scenario 4.
+#
+# Five nodes, each a Docker container on your machine:
+#
+#   rca4-control-plane  - Kubernetes itself: etcd, apiserver, scheduler and the
+#                         controller-manager whose node controller detects the
+#                         failure. Nothing of ours runs here.
+#   rca4-worker         - labelled rca4-role=infra. Jaeger and the API gateway.
+#                         Separate from the control plane on purpose: those
+#                         components get busy precisely when a node dies, and
+#                         sharing a node with them made our own gateway stall
+#                         for seconds at a time, which polluted the very latency
+#                         measurements this scenario exists to collect.
+#   rca4-worker2..4     - labelled rca4-role=app. The order-backend tier, one
+#                         replica per node.
+#
+# Five is a deliberate ceiling, not an accident. Every node here is a full
+# kubelet plus container runtime, and a six-node cluster starved the control
+# plane badly enough that kube-scheduler kept losing its leader lease and
+# crash-looping - which would have meant no replacement replica ever gets
+# scheduled, i.e. no recovery to measure. If you have plenty of RAM and CPU to
+# spare you can add app nodes; you do not need to.
+kind: Cluster
+apiVersion: kind.x-k8s.io/v1alpha4
+name: rca4
+
+nodes:
+  - role: control-plane
+    # NodePorts published to the host so the load generator and the extraction
+    # scripts can reach the cluster from macOS. kube-proxy on this node routes
+    # to pods anywhere in the cluster, so these keep working even while an app
+    # node is down.
+    extraPortMappings:
+      - containerPort: 30080   # api-gateway
+        hostPort: 30080
+        listenAddress: "127.0.0.1"
+      - containerPort: 30686   # Jaeger UI + query API
+        hostPort: 30686
+        listenAddress: "127.0.0.1"
+
+  # Observability + entry point. Never killed.
+  - role: worker
+    labels:
+      rca4-role: infra
+
+  # The application tier. One of these gets shot.
+  - role: worker
+    labels:
+      rca4-role: app
+  - role: worker
+    labels:
+      rca4-role: app
+  - role: worker
+    labels:
+      rca4-role: app
