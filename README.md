@@ -127,12 +127,23 @@ bash scripts/cluster_up.sh
 # Step 3+4: traffic for 5 minutes, node killed at T+60, keep hammering while it heals
 ./scene4/bin/python scripts/load_generator.py --duration 300 --rps 42 --chaos-at 60
 
-# Step 5: pull the traces and flatten them into a labelled time series
-./scene4/bin/python scripts/extract_data.py  --run-dir runs/<run_id>
-./scene4/bin/python scripts/build_dataset.py --run-dir runs/<run_id>
+# Step 5: pull the traces and flatten them into a labelled time series.
+# Set RUN to the run id the load generator printed. Never type angle brackets -
+# zsh treats < and > as redirection and will fail with "parse error near '\n'".
+RUN=runs/run_20260728_141846_node
+./scene4/bin/python scripts/extract_data.py  --run-dir "$RUN"
+./scene4/bin/python scripts/build_dataset.py --run-dir "$RUN"
 
 # Step 6: train the recovery-time forecaster
 ./scene4/bin/python scripts/forecast_recovery.py
+```
+
+Or let the shell pick the most recent run for you:
+
+```bash
+RUN=$(ls -dt runs/*/ | head -1)
+./scene4/bin/python scripts/extract_data.py  --run-dir "$RUN"
+./scene4/bin/python scripts/build_dataset.py --run-dir "$RUN"
 ```
 
 `cluster_up.sh` prints the run command with the right flags, and each script
