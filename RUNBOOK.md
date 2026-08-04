@@ -27,9 +27,12 @@ bash scripts/cluster_up.sh
 # 2. Five minutes of traffic, with a node killed 60 seconds in
 ./scene4/bin/python scripts/load_generator.py --duration 300 --rps 42 --chaos-at 60
 
-# 3. Pull the traces out of Jaeger and flatten them (use the run id printed above)
-./scene4/bin/python scripts/extract_data.py  --run-dir runs/<run_id>
-./scene4/bin/python scripts/build_dataset.py --run-dir runs/<run_id>
+# 3. Pull the traces out of Jaeger and flatten them.
+#    This picks the newest run automatically; set RUN by hand to target another.
+#    Do not type angle brackets - zsh reads < and > as redirection.
+RUN=$(ls -dt runs/*/ | head -1)
+./scene4/bin/python scripts/extract_data.py  --run-dir "$RUN"
+./scene4/bin/python scripts/build_dataset.py --run-dir "$RUN"
 
 # 4. Train the recovery-time forecaster
 ./scene4/bin/python scripts/forecast_recovery.py
