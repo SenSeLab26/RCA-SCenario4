@@ -158,3 +158,7 @@ Jaeger runs inside the cluster and is published on **30686**; the gateway on
 - **Everything is slow and erratic, all the time** — the whole cluster is six
   containers plus two Python processes. On a machine with little free RAM, give
   Docker/OrbStack more memory, or lower `--rps`.
+
+
+
+my understanding was flawed so stick with the intitial approach. so don't duplicate them since we need the single dataset.
