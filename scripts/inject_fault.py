@@ -108,9 +108,9 @@ def fault_memory_leak(args, pods):
     """
     targets = [p for p, _, ready in pods if ready]
     for pod in targets:
-        pod_control(pod, {"leak_kb_per_request": args.leak_kb})
+        pod_control(pod, {"leak_mb_per_sec": args.leak_mb_per_sec})
     return {"targets": targets,
-            "detail": f"leaking {args.leak_kb} KB per request on {len(targets)} replicas"}
+            "detail": f"leaking {args.leak_mb_per_sec} MB/s on {len(targets)} replicas"}
 
 
 def fault_cpu_saturation(args, pods):
@@ -207,8 +207,12 @@ def main():
     parser.add_argument("--target", default=None, help="specific pod or node to hit")
     parser.add_argument("--run-dir", default=None, help="record the fault event here")
     parser.add_argument("--dry-run", action="store_true", help="show what would happen")
-    parser.add_argument("--leak-kb", type=float, default=48,
-                        help="memory_leak: KB retained per request (default 48)")
+    parser.add_argument("--leak-mb-per-sec", type=float, default=2.0,
+                        help="memory_leak: MB retained per second of wall clock "
+                             "(default 2.0, which reaches a 256Mi limit in roughly 90 s). "
+                             "Deliberately time-based, not per-request: a per-request "
+                             "leak throttles itself as the service slows and never "
+                             "reaches the limit.")
     parser.add_argument("--cpu-ms", type=float, default=90,
                         help="cpu_saturation: ms of CPU burned per request (default 90)")
     parser.add_argument("--delay-ms", type=float, default=2000,
