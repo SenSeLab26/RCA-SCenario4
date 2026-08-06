@@ -41,28 +41,49 @@ confidently routing traffic to a machine that no longer exists.
 
 ## 2. The cluster
 
-```text
-                    kind cluster "rca4" (5 Docker containers)
+![Architecture of the five-node Kubernetes cluster used in Scenario 4](docs/cluster-architecture.png)
 
-  rca4-control-plane        etcd, apiserver, scheduler, controller-manager
-                            (the node controller here is what detects the fault)
+**Figure 1.** The cluster. The layout follows the component structure of the
+official Kubernetes architecture diagram, so the control plane holds
+`kube-apiserver`, `etcd`, `kube-scheduler` and `kube-controller-manager`, and
+every worker node holds `kubelet` and `kube-proxy` alongside its Pods.
 
-  rca4-worker   [infra]     Jaeger  <---- OTLP spans -------+
-                            api-gateway  :30080             |
-                                 |                          |
-                                 |  ClusterIP Service       |
-                                 |  (the load balancer)     |
-                    +------------+------------+             |
-                    |            |            |             |
-  rca4-worker2 [app] |  rca4-worker3 [app] |  rca4-worker4 [app]
-   order-backend     |   order-backend     |   order-backend  --> spans
-      replica 1      |      replica 2      |      replica 3
-                                                    ^
-                                                    |
-                                            we kill this node
-```
+Read the figure top to bottom. That is the path a single request takes:
+
+1. The **load generator** runs on the host and sends 42 requests every second.
+2. Those requests enter the cluster at the **api-gateway** Pod, which is the only
+   entry point and which measures and records every request.
+3. The gateway forwards each request to the **order-backend Service**. This is
+   the load balancer: it sends every new connection to one replica that is
+   currently marked Ready.
+4. The Service spreads the work across the **three order-backend replicas**, one
+   on each app node.
+
+Two things happen outside that path. The gateway and all three replicas send
+their measurements to the **jaeger** Pod, which stores them. And the
+**kube-controller-manager** watches the nodes; when one stops answering, it is
+the component that declares the node dead and replaces the replica that was
+lost.
+
+Colours carry meaning in the figure:
+
+| Colour | Meaning |
+| --- | --- |
+| Blue | Kubernetes' own components. We did not write these. |
+| Teal | The software we wrote, running as Pods. |
+| Amber | The load balancer. |
+| Grey | Runs on the host machine, outside the cluster. |
+| Red border | The node we destroy. Everything else survives. |
 
 Host access: gateway on `localhost:30080`, Jaeger UI on `localhost:30686`.
+
+The figure is generated from [docs/cluster-architecture.mmd](docs/cluster-architecture.mmd).
+To regenerate it after an edit:
+
+```bash
+npx -y @mermaid-js/mermaid-cli@11 -i docs/cluster-architecture.mmd \
+    -o docs/cluster-architecture.png -b white -s 3
+```
 
 A few design choices are load-bearing, and each one is commented in the file it
 lives in:
