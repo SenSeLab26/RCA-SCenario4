@@ -1,0 +1,494 @@
+% =====================================================================
+% CODE LISTINGS FOR THE IMPLEMENTATION SECTIONS OF SCENARIOS 1 - 4
+%
+% HOW TO USE THIS FILE
+%   1. Copy the PREAMBLE BLOCK below into your document preamble (once).
+%   2. Paste each scenario's block into that scenario's
+%      "Scenario Implementation" subsection, after the existing paragraph.
+%
+% Every listing here is taken verbatim from the working code, with only
+% blank lines and repeated boilerplate removed to keep the report readable.
+% =====================================================================
+
+
+% =====================================================================
+% PREAMBLE BLOCK - paste this ONCE, in your document preamble
+% =====================================================================
+%
+% \usepackage{listings}
+% \usepackage{xcolor}
+%
+% \definecolor{codebg}{rgb}{0.97,0.97,0.97}
+% \definecolor{codecomment}{rgb}{0.00,0.45,0.00}
+% \definecolor{codekeyword}{rgb}{0.10,0.10,0.65}
+% \definecolor{codestring}{rgb}{0.60,0.10,0.40}
+% \definecolor{coderule}{rgb}{0.65,0.65,0.65}
+%
+% % listings has no built-in YAML support, so we define a minimal one.
+% \lstdefinelanguage{yaml}{
+%   keywords={apiVersion,kind,metadata,spec,template,selector,matchLabels,
+%             labels,replicas,containers,image,name,command,env,value,ports,
+%             nodes,role,nodeSelector,affinity,podAntiAffinity,tolerations,
+%             readinessProbe,livenessProbe,resources,services,networks,
+%             build,depends_on,driver,true,false},
+%   sensitive=true,
+%   comment=[l]{\#},
+%   morestring=[b]",
+%   morestring=[b]'
+% }
+%
+% \lstdefinestyle{scenariocode}{
+%   backgroundcolor=\color{codebg},
+%   basicstyle=\ttfamily\footnotesize,
+%   commentstyle=\color{codecomment}\itshape,
+%   keywordstyle=\color{codekeyword}\bfseries,
+%   stringstyle=\color{codestring},
+%   numbers=left,
+%   numberstyle=\tiny\color{coderule},
+%   numbersep=8pt,
+%   frame=single,
+%   rulecolor=\color{coderule},
+%   breaklines=true,
+%   breakatwhitespace=false,
+%   captionpos=b,
+%   keepspaces=true,
+%   showspaces=false,
+%   showstringspaces=false,
+%   showtabs=false,
+%   tabsize=4,
+%   xleftmargin=16pt,
+%   framexleftmargin=16pt
+% }
+% \lstset{style=scenariocode}
+%
+% =====================================================================
+
+
+
+% #####################################################################
+% SCENARIO 1 - THE SILENT MEMORY LEAK
+% Paste into the "Scenario Implementation" subsection of Scenario 1.
+% #####################################################################
+
+All four scenarios share the same telemetry pipeline. A single
+\texttt{TracerProvider} is created, given a service name, and attached to a
+\texttt{BatchSpanProcessor} that exports finished spans to Jaeger over OTLP.
+Listing~\ref{lst:otel-setup} shows this shared setup.
+
+\begin{lstlisting}[language=Python, caption={Shared OpenTelemetry pipeline setup (\texttt{scenario\_1.py}).}, label={lst:otel-setup}]
+from opentelemetry import trace
+from opentelemetry.sdk.trace import TracerProvider
+from opentelemetry.sdk.trace.export import BatchSpanProcessor
+from opentelemetry.exporter.otlp.proto.grpc.trace_exporter import OTLPSpanExporter
+from opentelemetry.sdk.resources import Resource
+from opentelemetry.trace.status import Status, StatusCode
+
+# 1. Setup the Pipeline
+resource = Resource(attributes={"service.name": "multi-level-app"})
+provider = TracerProvider(resource=resource)
+processor = BatchSpanProcessor(
+    OTLPSpanExporter(endpoint="http://localhost:4317", insecure=True))
+provider.add_span_processor(processor)
+trace.set_tracer_provider(provider)
+tracer = trace.get_tracer(__name__)
+\end{lstlisting}
+
+The failure itself is a hard threshold inside the Level 2 database span. The
+simulated processing time grows on every iteration, and once it passes
+$0.8$ seconds the span is marked with an \texttt{OutOfMemoryError} and returns a
+failure to Level 1, which in turn marks its own span as failed. This is what
+produces the paired red spans in the exported trace data.
+
+\begin{lstlisting}[language=Python, caption={The memory-leak threshold and the cascade into Level 1 (\texttt{scenario\_1.py}).}, label={lst:s1-threshold}]
+# --- LEVEL 2: The Simulated Database (Memory Leak Degradation) ---
+def level_2_database_call(current_latency):
+    with tracer.start_as_current_span("level-2-db-query") as span:
+        span.set_attribute("db.type", "sql")
+        time.sleep(current_latency)          # degrading processing time
+
+        # Threshold: past 0.8 s the server runs out of RAM and crashes
+        if current_latency > 0.8:
+            error_message = "FATAL: OutOfMemoryError - System Degraded"
+            span.add_event("exception", {"exception.message": error_message})
+            span.set_status(Status(StatusCode.ERROR, error_message))
+            return False                     # Failed
+        return True                          # Healthy
+
+# --- LEVEL 1: The Simulated Frontend API ---
+def level_1_api_request(current_latency):
+    with tracer.start_as_current_span("level-1-api-endpoint") as span:
+        span.set_attribute("http.method", "GET")
+        success = level_2_database_call(current_latency)
+        if not success:
+            span.set_status(Status(StatusCode.ERROR,
+                "Request timed out due to downstream degradation"))
+\end{lstlisting}
+
+The degradation is driven by a $60$-step loop. Latency begins at $100$
+milliseconds and grows by $15$ milliseconds per step, with a small random
+jitter added so the series resembles real measurements rather than a perfectly
+straight line.
+
+\begin{lstlisting}[language=Python, caption={The time-series degradation loop (\texttt{scenario\_1.py}).}, label={lst:s1-loop}]
+base_latency = 0.1        # Starts fast and healthy (100 ms)
+degradation_step = 0.015  # Latency increases by 15 ms every step
+
+for i in range(60):
+    base_current = base_latency + (i * degradation_step)
+    jitter = random.uniform(-0.02, 0.02)     # real-world fluctuation
+    actual_latency = max(0.01, base_current + jitter)
+    level_1_api_request(actual_latency)
+
+provider.force_flush()
+\end{lstlisting}
+
+
+
+% #####################################################################
+% SCENARIO 2 - CASCADING TIMEOUT (TRAFFIC SPIKE)
+% Paste into the "Scenario Implementation" subsection of Scenario 2.
+% #####################################################################
+
+The defining feature of this scenario is that the two levels disagree about
+whether anything went wrong. Listing~\ref{lst:s2-timeout} shows why. Level 2
+never raises an error: it simply adds the queue delay to its own fast
+processing time and reports success. Level 1 applies a strict
+\texttt{if total\_db\_time > 2.0} rule and abandons the request, marking only
+its own span as failed. The result is a trace whose backend is green and whose
+frontend is red, which is exactly the symptom-versus-cause distinction the
+Explainable AI must resolve.
+
+\begin{lstlisting}[language=Python, caption={A healthy but slow database, and the strict frontend timeout that fails above it (\texttt{scenario\_2.py}).}, label={lst:s2-timeout}]
+# --- LEVEL 2: The Database (Getting overloaded by the queue) ---
+def level_2_database_call(queue_delay):
+    with tracer.start_as_current_span("level-2-db-query") as span:
+        span.set_attribute("db.type", "sql")
+        # Processing is fast (0.1 s), but the line to get in is huge
+        actual_processing_time = 0.1
+        total_time = actual_processing_time + queue_delay
+        time.sleep(total_time)
+        # No error here. The database is healthy, just backed up.
+        return total_time
+
+# --- LEVEL 1: The Frontend API (strict 2.0 second timeout) ---
+def level_1_api_request(queue_delay):
+    with tracer.start_as_current_span("level-1-api-endpoint") as span:
+        span.set_attribute("http.method", "POST")
+        span.set_attribute("http.route", "/checkout")
+        total_db_time = level_2_database_call(queue_delay)
+
+        # --- THE CASCADING TIMEOUT ---
+        if total_db_time > 2.0:
+            error_msg = ("HTTP 504: Gateway Timeout - "
+                         "Downstream database took too long")
+            span.add_event("exception", {"exception.message": error_msg})
+            span.set_status(Status(StatusCode.ERROR, error_msg))
+            return False
+        return True
+\end{lstlisting}
+
+The traffic spike is injected at the midpoint of the run. For the first $30$
+iterations the queue is empty and every checkout succeeds. From iteration $30$
+onwards the queue delay grows by $0.2$ seconds per minute, because requests
+arrive faster than the database can clear them. The frontend therefore begins
+failing once the accumulated delay pushes the total past its two-second budget.
+
+\begin{lstlisting}[language=Python, caption={Injecting the traffic spike at minute 30 (\texttt{scenario\_2.py}).}, label={lst:s2-spike}]
+queue_delay = 0.0
+
+for i in range(60):                # Simulate 60 minutes
+    if i == 30:
+        print("MASSIVE TRAFFIC SPIKE! 5,000 users clicked 'Buy' at once!")
+    if i >= 30:
+        # Requests arrive faster than they finish, so the queue grows
+        queue_delay += 0.2
+
+    jitter = random.uniform(-0.02, 0.02)
+    current_delay = max(0.0, queue_delay + jitter)
+    success = level_1_api_request(current_delay)
+\end{lstlisting}
+
+
+
+% #####################################################################
+% SCENARIO 3 - NETWORK CHAOS (PACKET LOSS AND CONGESTION)
+% Paste into the "Scenario Implementation" subsection of Scenario 3.
+% #####################################################################
+
+Unlike the first two scenarios, this one requires real machines talking over a
+real network, so the services were containerised and placed on a private Docker
+network. Listing~\ref{lst:s3-compose} shows the three containers: the Jaeger
+trace store, the Level 2 backend and the Level 1 frontend. Note that this
+scenario exports traces to \texttt{jaeger:4317}, the container hostname, rather
+than to \texttt{localhost}.
+
+\begin{lstlisting}[language=yaml, caption={The private Docker network and its three containers (\texttt{docker-compose.yml}).}, label={lst:s3-compose}]
+services:
+  jaeger:                                  # 1. The Trace Database
+    image: jaegertracing/all-in-one:latest
+    ports:
+      - "16686:16686"
+      - "4317:4317"
+    networks:
+      - ainetwork
+
+  level-2:                                 # 2. The Backend Service
+    build: .
+    command: tail -f /dev/null             # keep the container awake
+    networks:
+      - ainetwork
+
+  level-1:                                 # 3. The Frontend API Service
+    build: .
+    command: tail -f /dev/null
+    networks:
+      - ainetwork
+    depends_on:
+      - level-2
+      - jaeger
+
+networks:                                  # a private virtual network
+  ainetwork:
+    driver: bridge
+\end{lstlisting}
+
+The application code makes genuine HTTP calls across that network with a strict
+$0.5$ second budget. When congestion delays or drops the packets, the request
+raises a \texttt{RequestException}, which is captured on the span as an error.
+Nothing inside the application is broken; the wire between the services is.
+
+\begin{lstlisting}[language=Python, caption={Real HTTP requests with a strict timeout, recording network failures as error spans (\texttt{network\_test.py}).}, label={lst:s3-request}]
+def make_network_request(attempt_number):
+    with tracer.start_as_current_span("http-request-to-level-2") as span:
+        span.set_attribute("attempt.number", attempt_number)
+        try:
+            # Call the Level 2 container over the Docker network
+            start_time = time.time()
+            response = requests.get("http://level-2:8000", timeout=0.5)
+            duration = time.time() - start_time
+            span.set_attribute("http.status_code", response.status_code)
+
+        except requests.exceptions.RequestException as e:
+            # If packet loss is too high, the request fails
+            error_msg = f"Network Failure: {str(e)}"
+            span.add_event("exception", {"exception.message": error_msg})
+            span.set_status(Status(StatusCode.ERROR, error_msg))
+\end{lstlisting}
+
+The congestion itself is produced by \texttt{iperf3}, which floods the private
+network with $100$ Mbit/s of UDP traffic for $30$ seconds. The flood is started
+first and the request loop immediately afterwards, so that the two overlap.
+
+\begin{lstlisting}[language=bash, caption={Generating the network flood and running the experiment underneath it.}, label={lst:s3-flood}]
+# Terminal 1 - Level 2: the web server under test
+docker compose exec level-2 python -m http.server 8000
+
+# Terminal 2 - Level 2: the iperf server that receives the flood
+docker compose exec level-2 iperf3 -s
+
+# Terminal 3 - Level 1: saturate the network with 100 Mbit/s UDP for 30 s
+docker compose exec level-1 iperf3 -c level-2 -u -b 100M -t 30
+
+# Terminal 4 - Level 1: fire the traced requests into the congestion
+docker compose exec level-1 python3 network_test.py
+\end{lstlisting}
+
+
+
+% #####################################################################
+% SCENARIO 4 - KUBERNETES FAULT TOLERANCE AND REROUTING
+% Paste into the "Scenario Implementation" subsection of Scenario 4.
+% #####################################################################
+
+The cluster is declared as five machines, as shown in
+Listing~\ref{lst:s4-cluster}. Labels separate the machine that carries the
+observability tools from the three machines that run the order backend, which
+guarantees that the fault we inject can never destroy the instrument measuring
+it.
+
+\begin{lstlisting}[language=yaml, caption={The five-machine cluster definition (\texttt{k8s/kind-cluster.yaml}).}, label={lst:s4-cluster}]
+kind: Cluster
+apiVersion: kind.x-k8s.io/v1alpha4
+name: rca4
+
+nodes:
+  - role: control-plane          # etcd, apiserver, scheduler, controllers
+    extraPortMappings:
+      - containerPort: 30080     # api-gateway, published to the host
+        hostPort: 30080
+      - containerPort: 30686     # Jaeger UI and query API
+        hostPort: 30686
+
+  - role: worker                 # observability + entry point; never killed
+    labels:
+      rca4-role: infra
+
+  - role: worker                 # the application tier: one of these is shot
+    labels:
+      rca4-role: app
+  - role: worker
+    labels:
+      rca4-role: app
+  - role: worker
+    labels:
+      rca4-role: app
+\end{lstlisting}
+
+Listing~\ref{lst:s4-deploy} contains the three settings that make self-healing
+observable inside a short experiment. The anti-affinity rule spreads the copies
+one per machine; the tolerations shorten the wait before a copy on an
+unreachable machine is replaced, from the Kubernetes default of $300$ seconds
+down to $10$; and the environment variables fix the capacity of each copy and
+the length of its warm-up.
+
+\begin{lstlisting}[language=yaml, caption={Replica placement, fast failover and the capacity settings (\texttt{k8s/20-order-backend.yaml}).}, label={lst:s4-deploy}]
+spec:
+  replicas: 3
+  template:
+    spec:
+      nodeSelector:
+        rca4-role: app
+      affinity:
+        podAntiAffinity:                 # one copy per machine
+          preferredDuringSchedulingIgnoredDuringExecution:
+            - weight: 100
+              podAffinityTerm:
+                labelSelector:
+                  matchLabels:
+                    app: order-backend
+                topologyKey: kubernetes.io/hostname
+      tolerations:                       # default is 300 s; we want 10 s
+        - key: node.kubernetes.io/unreachable
+          operator: Exists
+          effect: NoExecute
+          tolerationSeconds: 10
+      terminationGracePeriodSeconds: 0   # abrupt loss, not a polite shutdown
+      containers:
+        - name: order-backend
+          env:
+            - name: WORKER_SLOTS         # 2 slots / 100 ms = 20 requests/s
+              value: "2"
+            - name: SERVICE_TIME_MS
+              value: "100"
+            - name: WARMUP_SECONDS       # a new copy is useless this long
+              value: "15"
+\end{lstlisting}
+
+The capacity limit is enforced in the application itself, as shown in
+Listing~\ref{lst:s4-capacity}. A semaphore admits only \texttt{WORKER\_SLOTS}
+requests at a time; everything else waits. The waiting time is measured and
+written onto the span, which makes the growth of the queue directly visible in
+the telemetry and is the measurement the brownout is read from.
+
+\begin{lstlisting}[language=Python, caption={The bounded-concurrency limit that converts lost capacity into measurable queueing (\texttt{app/order\_backend.py}).}, label={lst:s4-capacity}]
+# Capacity per replica = WORKER_SLOTS / SERVICE_TIME_MS = 20 requests/s
+slots = threading.Semaphore(WORKER_SLOTS)
+
+def _handle_order(self):
+    # Continue the trace the API gateway started
+    ctx = propagator.extract(
+        carrier={k.lower(): v for k, v in self.headers.items()})
+
+    with tracer.start_as_current_span("order-backend.process", context=ctx) as span:
+        span.set_attribute("k8s.pod.name", POD_NAME)
+        span.set_attribute("k8s.node.name", NODE_NAME)
+
+        # Time spent waiting for a free slot IS the brownout signal
+        queued_at = time.time()
+        slots.acquire()
+        queue_wait = time.time() - queued_at
+        try:
+            time.sleep(SERVICE_TIME_MS / 1000.0)
+        finally:
+            slots.release()
+
+        span.set_attribute("backend.queue_wait_ms", round(queue_wait * 1000, 2))
+\end{lstlisting}
+
+The fault is injected by destroying the container that hosts one of the
+machines. \texttt{docker kill} is used rather than a graceful stop so that the
+machine disappears with no shutdown sequence at all, exactly like a pulled power
+cable. The precise moment is recorded, because every later measurement and the
+training label are expressed relative to it.
+
+\begin{lstlisting}[language=Python, caption={Injecting the node failure and recording the exact moment (\texttt{scripts/inject\_chaos.py}).}, label={lst:s4-chaos}]
+target_pod, target_node = pick_target(pods, args.target)
+
+fault_at = time.time()
+if args.mode == "node":
+    # `docker kill` rather than `stop`: no SIGTERM, no graceful shutdown.
+    # The machine simply ceases to exist as far as the cluster is concerned.
+    run(["docker", "kill", target_node])
+else:
+    run(["kubectl", "-n", NAMESPACE, "delete", "pod", target_pod,
+         "--grace-period=0", "--force"])
+
+event = {"mode": args.mode, "target_pod": target_pod,
+         "target_node": target_node, "fault_at": fault_at}
+\end{lstlisting}
+
+Roughly $12{,}000$ traces per run are then flattened into one row per second,
+and each row is labelled with the number of seconds remaining until the system
+is stable again. Listing~\ref{lst:s4-label} shows how that moment is located.
+The rule compares against the measured baseline rather than against perfection,
+and accepts $8$ healthy seconds out of $10$, because a healthy cluster still
+produces the occasional slow request and the finish line must not depend on a
+single unlucky packet.
+
+\begin{lstlisting}[language=Python, caption={Locating the moment of restabilization, which produces the training label (\texttt{scripts/build\_dataset.py}).}, label={lst:s4-label}]
+threshold = max(baseline_p95 * tolerance, baseline_p95 + 20)
+err_threshold = max(base_err_rate * 2.0, 0.02)
+
+def is_healthy(row):
+    return (row["err_rate"] <= err_threshold
+            and row["active_pods"] >= expected_replicas
+            and row["p95_ms"] <= threshold)
+
+# A strong majority, not every second: one noisy second must not move the
+# finish line. But the window must *start* healthy, so the timestamp still
+# marks a real transition.
+needed = int(round(hold * hold_fraction))
+for row in incident:
+    start = row["t_rel"]
+    window = [by_t[t] for t in range(start, start + hold) if t in by_t]
+    if len(window) < hold or not is_healthy(window[0]):
+        continue
+    if sum(1 for w in window if is_healthy(w)) >= needed:
+        return start, threshold, err_threshold
+
+# Label for every second of the incident
+row["seconds_to_restabilize"] = max(0, restabilized_at - row["t_rel"])
+\end{lstlisting}
+
+Finally the forecaster is trained and validated. Because one outage produces
+only one recovery curve, the models are scored with \textit{leave-one-run-out}
+testing: the model is trained on complete outages and asked to predict a
+different outage it has never seen.
+
+\begin{lstlisting}[language=Python, caption={Leave-one-run-out validation of the recovery forecaster (\texttt{scripts/forecast\_recovery.py}).}, label={lst:s4-train}]
+FULL_FEATURES = ["p50_ms", "p95_ms", "max_ms", "mean_ms", "mean_queue_wait_ms",
+                 "err_rate", "err_rate_roll5", "active_pods", "pods_missing",
+                 "p95_ratio", "p95_slope_5s", "req_count", "time_since_fault"]
+TARGET = "seconds_to_restabilize"
+
+models = {
+    "RandomForest": RandomForestRegressor(n_estimators=300, random_state=42),
+    "GradientBoosting": GradientBoostingRegressor(random_state=42),
+    "LinearRegression": LinearRegression(),
+}
+
+# Train on whole outages, test on an outage the model has never seen
+splitter = GroupKFold(n_splits=min(len(runs), 5))
+for name, model in models.items():
+    maes = []
+    for train_idx, test_idx in splitter.split(X, y, groups):
+        model.fit(X[train_idx], y[train_idx])
+        predicted = model.predict(X[test_idx])
+        maes.append(mean_absolute_error(y[test_idx], predicted))
+    print(f"{name}: MAE {np.mean(maes):.2f}s")
+\end{lstlisting}
+
+The same evaluation is then repeated with \texttt{time\_since\_fault} removed
+from the feature list, forcing the model to rely only on the shape of the
+latency and replica-count curves. Comparing the two results is what confirms the
+model has learned the recovery dynamics rather than simply reading a clock.

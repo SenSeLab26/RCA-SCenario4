@@ -1,0 +1,64 @@
+flowchart TB
+
+    LG["<b>Load generator</b><br/>runs on the host<br/>42 requests per second"]
+
+    subgraph CP["rca4-control-plane &nbsp;&nbsp; control plane node"]
+        direction LR
+        API["kube-apiserver"]
+        ETCD["etcd"]
+        SCHED["kube-scheduler"]
+        KCM["kube-controller-manager<br/>declares a node dead after<br/>about 40 seconds of silence"]
+    end
+
+    subgraph INFRA["rca4-worker &nbsp;&nbsp; rca4-role=infra &nbsp;&nbsp; never attacked"]
+        direction TB
+        GW["<b>Pod: api-gateway</b><br/>the only entry point<br/>measures every request"]
+        JG["<b>Pod: jaeger</b><br/>stores traces from the gateway<br/>and all three replicas"]
+        IKUBE["kubelet + kube-proxy"]
+    end
+
+    SVC["<b>Service: order-backend</b><br/>the load balancer<br/>sends each new connection<br/>to one Ready replica"]
+
+    subgraph APP4["rca4-worker4 &nbsp;&nbsp; rca4-role=app &nbsp;&nbsp; THE FAULT IS INJECTED HERE"]
+        direction LR
+        B3["<b>Pod: order-backend</b> replica 3<br/>serves 20 requests per second"]
+        K3["kubelet + kube-proxy"]
+    end
+
+    subgraph APP3["rca4-worker3 &nbsp;&nbsp; rca4-role=app"]
+        direction LR
+        B2["<b>Pod: order-backend</b> replica 2<br/>serves 20 requests per second"]
+        K2["kubelet + kube-proxy"]
+    end
+
+    subgraph APP2["rca4-worker2 &nbsp;&nbsp; rca4-role=app"]
+        direction LR
+        B1["<b>Pod: order-backend</b> replica 1<br/>serves 20 requests per second"]
+        K1["kubelet + kube-proxy"]
+    end
+
+    LG -->|"HTTP to port 30080"| GW
+    GW -->|"one new connection<br/>per request"| SVC
+    SVC --> B1
+    SVC --> B2
+    SVC --> B3
+    GW -.->|"traces"| JG
+
+    KCM -.->|"replaces the lost replica"| APP4
+
+
+    classDef k8s fill:#326CE5,stroke:#1B4DB1,color:#FFFFFF,stroke-width:1px
+    classDef ours fill:#0E7C7B,stroke:#075A59,color:#FFFFFF,stroke-width:1px
+    classDef host fill:#4B5563,stroke:#374151,color:#FFFFFF,stroke-width:1px
+    classDef lb fill:#B45309,stroke:#7C3E06,color:#FFFFFF,stroke-width:1px
+
+    class API,ETCD,SCHED,KCM,IKUBE,K1,K2,K3 k8s
+    class GW,JG,B1,B2,B3 ours
+    class LG host
+    class SVC lb
+
+    style CP fill:#EEF3FD,stroke:#326CE5,stroke-width:2px
+    style INFRA fill:#EDF7F7,stroke:#0E7C7B,stroke-width:2px
+    style APP2 fill:#F7F7F8,stroke:#9CA3AF,stroke-width:1px
+    style APP3 fill:#F7F7F8,stroke:#9CA3AF,stroke-width:1px
+    style APP4 fill:#FDF0EF,stroke:#C0392B,stroke-width:3px

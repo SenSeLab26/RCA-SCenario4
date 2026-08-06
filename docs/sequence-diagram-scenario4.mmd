@@ -1,0 +1,57 @@
+%% Sequence diagram for Scenario 4: Kubernetes Fault Tolerance & Rerouting
+%%
+%% Render to PNG with:
+%%   npx -y @mermaid-js/mermaid-cli@11 -i docs/sequence-diagram-scenario4.mmd \
+%%       -o docs/sequence-diagram-scenario4.png -b white -s 3
+%%
+%% Or paste the code below into https://mermaid.live and export the PNG.
+
+sequenceDiagram
+    autonumber
+    actor Users as End Users
+    participant GW as Level 1: API Gateway
+    participant LB as Load Balancer
+    participant SV as Surviving Replicas 1 and 2
+    participant R3 as Replica 3 on Node C
+    participant NR as Replacement Replica
+    participant KCP as Kubernetes Control Plane
+    participant JG as OpenTelemetry, Jaeger and AI
+
+    Note over Users,R3: PHASE 0 - HEALTHY BASELINE (42 requests per second)
+    Users->>GW: Continuous order requests
+    GW->>LB: Forward request
+    LB->>SV: Two thirds of traffic
+    LB->>R3: One third of traffic
+    R3-->>GW: 200 OK (about 110 ms)
+    GW->>JG: Trace: HEALTHY (records serving pod and node)
+
+    Note over R3: FAULT INJECTED - Node C is killed instantly
+
+    Note over Users,KCP: PHASE 1 - BLACK HOLE (about 40 s)
+    Users->>GW: Requests continue
+    GW->>LB: Forward request
+    LB--xR3: One third of traffic still sent to the dead replica
+    R3--xGW: No response - Gateway gives up after 5 s
+    GW->>JG: Trace: ERROR (upstream timeout)
+    Note right of GW: Failures spike, but the surviving path stays fast
+    KCP->>LB: Node C missed its heartbeats - remove it from the endpoints
+
+    Note over Users,SV: PHASE 2 - BROWNOUT (two replicas carry all the load)
+    Users->>GW: Requests continue
+    GW->>LB: Forward request
+    LB->>SV: All of the traffic
+    SV-->>GW: 200 OK but slow - queue grows to about 1900 ms
+    GW->>JG: Trace: HEALTHY but heavily degraded latency
+    Note right of LB: No failures now, but roughly 15 times slower
+
+    Note over KCP,NR: PHASE 3 - RECOVERY
+    KCP->>NR: Schedule a replacement replica on a surviving node
+    Note right of NR: Not usable yet - 15 s warm-up
+    NR->>LB: Readiness probe passes - added to the endpoints
+    LB->>NR: Traffic resumes across three replicas
+    NR-->>GW: 200 OK - backlog drains, latency returns to baseline
+    GW->>JG: Trace: HEALTHY (back to about 110 ms)
+
+    Note over JG: DATA PIPELINE AND PREDICTION
+    JG->>JG: Flatten traces to one row per second and label each second
+    JG->>Users: "Node failure detected. Estimated time to full restabilization: 124 s"
