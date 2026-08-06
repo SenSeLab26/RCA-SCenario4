@@ -1,129 +1,241 @@
-# Runbook: Scenario 4 commands
+# Runbook: commands and step-by-step process
 
 Quick reference. The README explains *why*; this file is just *what to type*.
 
-All commands run from the `RCA-SCenario4` folder.
+All commands run from the **`RCA-SCenario4`** folder (note the capital S — a
+mistyped `RCA-Scenario4` does not exist).
+
+Docker Desktop or OrbStack must be running before anything else. If `kubectl`
+reports `connection refused`, that is almost always the cause.
 
 ---
 
 ## One-time setup
 
 ```bash
-brew install kind kubectl          # if you don't have them
+brew install kind kubectl                    # if you don't have them
 python3 -m venv scene4
 ./scene4/bin/pip install -r requirements.txt
+./scene4/bin/pip install langchain-ollama    # only for the LLM report step
 ```
-
-Docker Desktop or OrbStack must be running before any of the commands below.
 
 ---
 
-## The happy path (four commands)
+## Step 1 — Start the cluster
 
 ```bash
-# 1. Build the six-node cluster, deploy Jaeger + gateway + 3 replicas
 bash scripts/cluster_up.sh
+```
 
-# 2. Five minutes of traffic, with a node killed 60 seconds in
+Builds a five-node cluster (control plane, one infra node for Jaeger and the
+gateway, three app nodes each running one backend replica), deploys everything
+and smoke-tests it. A few minutes the first time. Safe to re-run.
+
+- Gateway: <http://localhost:30080/order>
+- Jaeger UI: <http://localhost:30686> — pick service `api-gateway`
+
+---
+
+## Step 2 — Run traffic and inject a fault
+
+Eight faults are available. `inject_fault.py` handles all of them using only
+`kubectl` and `docker`; nothing extra is installed.
+
+```bash
+./scene4/bin/python scripts/inject_fault.py --list
+```
+
+| Fault | Scenario | What breaks |
+| --- | --- | --- |
+| `memory_leak` | 1 | backend leaks memory until the kernel OOMKills it |
+| `cpu_saturation` | 1 | backend burns CPU until the container limit throttles it |
+| `dependency_slow` | 2 | backend slows until the gateway times out |
+| `dependency_down` | 2 | backend scaled to zero: connection refused |
+| `config_error` | 2 | gateway pointed at a hostname that does not resolve |
+| `network_partition` | 3 | replica alive and healthy but removed from the load balancer |
+| `pod_failure` | 4 | one replica force-deleted |
+| `node_failure` | 4 | the node hosting a replica is killed outright |
+
+### The load level matters, and differs by fault
+
+This is the easiest thing to get wrong. Each replica serves about 20 requests
+per second, so three replicas serve 60. If the offered load is too close to that
+ceiling, the queue collapses and every curve saturates at the gateway timeout
+instead of showing its shape.
+
+| Fault | Use | Why |
+| --- | --- | --- |
+| `node_failure`, `pod_failure` | `--rps 42` | 70% of capacity, so losing a replica pushes it just over and produces the brownout |
+| `memory_leak`, `cpu_saturation` | `--rps 6` | the fault itself slows each request, so load must stay well under capacity or the queue hides the degradation |
+| `dependency_slow` | `--rps 6` | same reason |
+| `dependency_down`, `config_error`, `network_partition` | `--rps 42` | these fail outright rather than slowing down, so there is no queue to protect |
+
+### 2a. Faults the load generator can fire for you
+
+For `node_failure` and `pod_failure`, the load generator injects the fault itself
+at the right moment, which keeps the timing perfectly aligned:
+
+```bash
+# Node failure: the full scenario, 5 minutes, node killed at T+60s
 ./scene4/bin/python scripts/load_generator.py --duration 300 --rps 42 --chaos-at 60
 
-# 3. Pull the traces out of Jaeger and flatten them.
-#    This picks the newest run automatically; set RUN by hand to target another.
-#    Do not type angle brackets - zsh reads < and > as redirection.
-RUN=$(ls -dt runs/*/ | head -1)
+# Pod failure: much faster recovery, no ~45s detection phase
+./scene4/bin/python scripts/load_generator.py --duration 240 --rps 42 --chaos-at 60 --chaos-mode pod
+```
+
+### 2b. Any of the eight faults
+
+Start traffic in one terminal and inject in another. Give the run a name so the
+two halves land in the same folder:
+
+```bash
+# Terminal 1 — traffic (note the low rps for a slow-degradation fault)
+./scene4/bin/python scripts/load_generator.py --duration 160 --rps 6 --run-id run_memleak_01
+
+# Terminal 2 — wait ~20s for a healthy baseline, then inject
+./scene4/bin/python scripts/inject_fault.py --fault memory_leak \
+    --leak-mb-per-sec 1.5 --run-dir runs/run_memleak_01
+```
+
+Every run needs a **healthy baseline in front of the fault** — inject 20 seconds
+in at the earliest. Without it there is nothing to compare against and the
+analysis scripts will refuse the run.
+
+Useful flags: `--dry-run` shows what would be hit without doing it;
+`--target rca4-worker3` picks the victim instead of choosing at random.
+
+---
+
+## Step 3 (optional) — Watch Kubernetes heal itself
+
+Records the orchestrator's own timeline: when the node was marked dead, when the
+replacement was scheduled, when it started, when it began taking traffic. Run it
+in a third terminal, started just before the traffic:
+
+```bash
+./scene4/bin/python scripts/k8s_event_watcher.py --run-dir runs/run_memleak_01 --duration 180
+```
+
+It prints where the time actually went, and writes `k8s_timeline.json` and
+`k8s_timeline.csv` into the run folder. This is how you show that Kubernetes
+often finishes its repair long before users stop feeling the incident.
+
+---
+
+## Step 4 — Turn the run into data
+
+```bash
+RUN=$(ls -dt runs/*/ | head -1)     # newest run; set by hand to target another
 ./scene4/bin/python scripts/extract_data.py  --run-dir "$RUN"
 ./scene4/bin/python scripts/build_dataset.py --run-dir "$RUN"
+```
 
-# 4. Train the recovery-time forecaster
+`extract_data.py` pulls the traces out of Jaeger; `build_dataset.py` flattens
+them to one row per second, works out when the system restabilized, and appends
+to the single pooled dataset at `data/recovery_dataset.csv`.
+
+There is also a simpler one-shot extractor that aggregates straight to a CSV,
+used by the LLM report step:
+
+```bash
+./scene4/bin/python scripts/k8s_trace_extractor.py                    # from the live cluster
+./scene4/bin/python scripts/k8s_trace_extractor.py --from-file "$RUN/raw_trace_data.json"
+```
+
+---
+
+## Step 5 — The models
+
+**Which fault is this?** The multi-class RCA classifier. Reads every run in
+`runs/` and needs no cluster and no extraction step, so it works with Docker off:
+
+```bash
+./scene4/bin/python scripts/train_rca_classifier.py
+```
+
+Prints a per-incident verdict (the answer an RCA system actually gives) and
+saves `rca_confusion_matrix.png`.
+
+**How long until it recovers?** The recovery-time forecaster:
+
+```bash
 ./scene4/bin/python scripts/forecast_recovery.py
 ```
 
-Jaeger UI: <http://localhost:30686> — pick service `api-gateway`.
+Saves `recovery_forecast.png`. Needs `build_dataset.py` to have run.
+
+**Write it up as an incident report.** Needs Ollama running locally
+(`ollama serve`, `ollama pull llama3.2`):
+
+```bash
+./scene4/bin/python scripts/devops_agent.py --csv k8s_recovery_data.csv
+./scene4/bin/python scripts/devops_agent.py --csv k8s_recovery_data.csv --summary-only   # skip the LLM
+```
 
 ---
 
-## Between runs
-
-A chaos run leaves one node powered off. Put the cluster back to a healthy
-3-replicas-on-3-nodes baseline:
+## Between runs — always reset
 
 ```bash
 bash scripts/reset_cluster.sh
 ```
 
-Then run the load generator again. Each run writes its own `runs/<run_id>/`
-directory and appends to `data/recovery_dataset.csv`.
+Restarts any node left powered off, re-spreads the replicas one per node, and
+undoes `dependency_down`, `config_error` and `network_partition`. Skipping this
+is the most common cause of a run that produces nonsense.
 
-**Collect at least three runs before trusting the model's error numbers.** One
-run is one recovery curve; the forecaster can fit it perfectly and still know
-nothing about the next incident. `forecast_recovery.py` says so explicitly when
-it only finds one run.
+Each run writes its own `runs/<run_id>/` and appends to the single pooled
+dataset, so runs accumulate rather than overwrite.
+
+**Collect at least two runs per fault type.** With only one run of a fault, no
+model can be tested on an incident it has not already seen, and both scripts
+will say so rather than quoting a flattering number.
 
 ---
 
 ## Teardown
 
 ```bash
-bash scripts/cluster_down.sh    # deletes the cluster, frees ports 30080 / 30686
+bash scripts/cluster_down.sh     # deletes the cluster, frees ports 30080 / 30686
 ```
 
-Your `runs/` and `data/` directories survive teardown.
+`runs/` and `data/` survive teardown.
 
 ---
 
-## Useful inspection commands
+## Inspection commands
 
 ```bash
-# Where are the replicas right now?
+# Where are the replicas, and are they healthy?
 kubectl -n rca4 get pods -l app=order-backend -o wide
 
+# Proof the memory leak caused a real kernel kill
+kubectl -n rca4 get pods -l app=order-backend -o custom-columns=\
+'POD:.metadata.name,RESTARTS:.status.containerStatuses[0].restartCount,REASON:.status.containerStatuses[0].lastState.terminated.reason,EXIT:.status.containerStatuses[0].lastState.terminated.exitCode'
+
 # What is the load balancer actually routing to?
-kubectl -n rca4 get endpointslice -l kubernetes.io/service-name=order-backend -o yaml
+kubectl -n rca4 get endpointslice -l kubernetes.io/service-name=order-backend
 
-# Node health (the killed node shows Ready=Unknown, then disappears)
-kubectl get nodes
+# Node health (a killed node shows Ready=Unknown)
+kubectl get nodes -L rca4-role
 
-# Watch the recovery happen live, in another terminal
+# Watch the recovery live, in another terminal
 kubectl -n rca4 get pods -l app=order-backend -w
 
-# Gateway / backend logs
+# Logs
 kubectl -n rca4 logs deploy/api-gateway --tail=20
 kubectl -n rca4 logs -l app=order-backend --tail=20 --prefix
 
-# Which node did we kill, and is it still down?
+# Which node is down?
 docker ps -a --filter name=rca4 --format '{{.Names}}\t{{.Status}}'
-```
-
----
-
-## Variations worth running
-
-```bash
-# Kill just the pod instead of the whole node. Kubernetes notices immediately,
-# so there is no ~40 second detection phase and recovery is much faster. Good
-# contrast run, and it gives the model a second, different recovery shape.
-./scene4/bin/python scripts/load_generator.py --duration 240 --rps 42 --chaos-at 60 --chaos-mode pod
-
-# A clean baseline run with no fault at all, to see what "normal" looks like.
-./scene4/bin/python scripts/load_generator.py --duration 120 --rps 42
-
-# Pick the victim yourself instead of at random.
-./scene4/bin/python scripts/inject_chaos.py --mode node --target rca4-worker3 --dry-run
-
-# Heavier load: the survivors go well over capacity and latency pins at the
-# gateway timeout instead of forming a curve. See the note in
-# k8s/20-order-backend.yaml about why 42 is the default.
-./scene4/bin/python scripts/load_generator.py --duration 300 --rps 48 --chaos-at 60
 ```
 
 ---
 
 ## Ports
 
-Unlike Scenarios 1-3, this scenario does **not** use ports 16686 / 4317 on the
-host, so it does not collide with the standalone Jaeger those scenarios use.
-Jaeger runs inside the cluster and is published on **30686**; the gateway on
-**30080**.
+This scenario does **not** use 16686 / 4317, so it does not collide with the
+standalone Jaeger that Scenarios 1-3 use. Both can run at once.
 
 | Port | What |
 | --- | --- |
@@ -134,31 +246,37 @@ Jaeger runs inside the cluster and is published on **30686**; the gateway on
 
 ## Troubleshooting
 
-- **`cannot reach the API gateway`** — the cluster is not up, or Docker is not
-  running. `bash scripts/cluster_up.sh`.
-- **`no context exists with the name "kind-rca4"`** — a previous
-  `cluster_down.sh` half-failed and left orphaned containers. Clean up and
-  recreate:
-  ```bash
-  docker ps -a --filter name=rca4 -q | xargs -r docker rm -f
-  bash scripts/cluster_up.sh
-  ```
-- **Replicas not spread one-per-node** — check the app nodes are labelled:
-  `kubectl get nodes -L rca4-role`. There must be four `app` nodes for three
-  replicas plus a spare.
-- **The replacement replica sits `Pending`** — no spare app node is available.
-  `kubectl -n rca4 describe pod <pod>` will say
-  `didn't match pod anti-affinity rules`. Run `reset_cluster.sh`.
+- **`connection refused` on port 55559 (or any kubectl error)** — Docker is not
+  running. Start OrbStack or Docker Desktop, wait for the nodes to come back
+  (`docker ps --filter name=rca4`), then retry.
+- **`cannot reach the API gateway`** — the cluster is not up. Run
+  `bash scripts/cluster_up.sh`.
+- **`OOMKilled` shows as `Unknown` / exit 255** — the pod has terminated again
+  since, and Kubernetes only keeps the *most recent* termination. Any cluster or
+  Docker restart erases the evidence. Re-run the leak to regenerate it.
+- **A fault reports success but nothing happens** — check that
+  `inject_fault.py` and `app/order_backend.py` agree on the parameter names. The
+  in-app faults (`memory_leak`, `cpu_saturation`, `dependency_slow`) are set
+  through the backend's `/control` endpoint, and an unrecognised key is silently
+  ignored.
+- **`no context exists with the name "kind-rca4"`** — a previous teardown
+  half-failed and left orphaned containers. Clean up and recreate with
+  `docker ps -a --filter name=rca4 -q | xargs -r docker rm -f` followed by
+  `bash scripts/cluster_up.sh`.
+- **Replicas not spread one per node** — check the labels with
+  `kubectl get nodes -L rca4-role`; there should be three `app` nodes. Then run
+  `reset_cluster.sh`. Anti-affinity is *preferred*, not required, so a
+  replacement is allowed to double up on a surviving node rather than sitting
+  `Pending` forever.
 - **`build_dataset.py` says the system never restabilized** — the run ended
-  before the cluster recovered. Use a longer `--duration`, or relax the criteria
-  with `--tolerance 1.5 --hold 8`.
-- **No traces found by `extract_data.py`** — confirm the run generated traffic,
-  and that Jaeger is up: `kubectl -n rca4 get pods`. Jaeger stores traces in
-  memory, so a Jaeger restart loses everything collected so far.
-- **Everything is slow and erratic, all the time** — the whole cluster is six
-  containers plus two Python processes. On a machine with little free RAM, give
-  Docker/OrbStack more memory, or lower `--rps`.
-
-
-
-my understanding was flawed so stick with the intitial approach. so don't duplicate them since we need the single dataset.
+  before recovery finished. Use a longer `--duration`, or relax the criteria with
+  `--tolerance 1.5 --hold 8`. For `memory_leak` this is expected: the container is
+  OOMKilled repeatedly and never returns to baseline.
+- **Every curve saturates at 5000 ms** — the offered load is too high for the
+  fault. See the load table in Step 2.
+- **No traces found by `extract_data.py`** — Jaeger stores traces in memory, so a
+  Jaeger restart loses everything collected so far. Confirm it is up with
+  `kubectl -n rca4 get pods`.
+- **Everything is slow and erratic all the time** — five node containers plus two
+  Python processes on a machine with under 4 GB for Docker. Lower `--rps`, or give
+  OrbStack more memory.
