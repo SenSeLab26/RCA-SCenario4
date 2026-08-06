@@ -1,0 +1,6 @@
+t_rel,epoch,event,detail
+-0.7,1785906344.0,replacement created,order-backend-7d669fd9d4-56dv9 on rca4-worker2
+0.0,1785906344.726045,fault injected,pod rca4-worker2
+0.3,1785906345.0,replacement scheduled,order-backend-7d669fd9d4-56dv9 on rca4-worker2
+0.3,1785906345.0,replacement container started,order-backend-7d669fd9d4-56dv9 on rca4-worker2
+18.3,1785906363.0,replacement Ready (accepting traffic),order-backend-7d669fd9d4-56dv9 on rca4-worker2

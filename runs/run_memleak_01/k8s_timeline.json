@@ -1,0 +1,104 @@
+{
+  "fault": {
+    "fault_type": "memory_leak",
+    "scenario": 1,
+    "mode": "memory_leak",
+    "fault_at": 1786011801.606116,
+    "detail": "leaking 1.5 MB/s on 3 replicas",
+    "targets": [
+      "order-backend-854dc5555d-qb8r7",
+      "order-backend-854dc5555d-rrf7x",
+      "order-backend-854dc5555d-sxd97"
+    ],
+    "target_pod": "order-backend-854dc5555d-qb8r7",
+    "target_node": "rca4-worker3",
+    "replicas_before": [
+      {
+        "pod": "order-backend-854dc5555d-qb8r7",
+        "node": "rca4-worker3",
+        "ready": true
+      },
+      {
+        "pod": "order-backend-854dc5555d-rrf7x",
+        "node": "rca4-worker3",
+        "ready": true
+      },
+      {
+        "pod": "order-backend-854dc5555d-sxd97",
+        "node": "rca4-worker4",
+        "ready": true
+      }
+    ]
+  },
+  "events": [
+    {
+      "event": "fault injected",
+      "detail": "memory_leak rca4-worker3",
+      "epoch": 1786011801.606116,
+      "t_rel": 0.0
+    }
+  ],
+  "pods_observed": {
+    "order-backend-854dc5555d-qb8r7": {
+      "pod": "order-backend-854dc5555d-qb8r7",
+      "node": "rca4-worker3",
+      "created": 1786011272.0,
+      "phase": "Running",
+      "Initialized": 1786011273.0,
+      "PodScheduled": 1786011273.0,
+      "ContainerStarted": 1786011962.0,
+      "Ready": 1786011979.0,
+      "ContainersReady": 1786011979.0
+    },
+    "order-backend-854dc5555d-rrf7x": {
+      "pod": "order-backend-854dc5555d-rrf7x",
+      "node": "rca4-worker3",
+      "created": 1786011496.0,
+      "phase": "Running",
+      "Initialized": 1786011496.0,
+      "PodScheduled": 1786011496.0,
+      "ContainerStarted": 1786011960.0,
+      "Ready": 1786011979.0,
+      "ContainersReady": 1786011979.0
+    },
+    "order-backend-854dc5555d-sxd97": {
+      "pod": "order-backend-854dc5555d-sxd97",
+      "node": "rca4-worker4",
+      "created": 1786011293.0,
+      "phase": "Running",
+      "Initialized": 1786011294.0,
+      "PodScheduled": 1786011293.0,
+      "ContainerStarted": 1786011960.0,
+      "Ready": 1786011978.0,
+      "ContainersReady": 1786011978.0
+    }
+  },
+  "nodes_observed": {
+    "rca4-control-plane": {
+      "node": "rca4-control-plane",
+      "ready_status": "True",
+      "last_transition": 1785919172.0
+    },
+    "rca4-worker": {
+      "node": "rca4-worker",
+      "ready_status": "True",
+      "last_transition": 1786010656.0
+    },
+    "rca4-worker2": {
+      "node": "rca4-worker2",
+      "ready_status": "Unknown",
+      "not_ready_at": 1786011486.0,
+      "last_transition": 1786011486.0
+    },
+    "rca4-worker3": {
+      "node": "rca4-worker3",
+      "ready_status": "True",
+      "last_transition": 1786010656.0
+    },
+    "rca4-worker4": {
+      "node": "rca4-worker4",
+      "ready_status": "True",
+      "last_transition": 1785919172.0
+    }
+  }
+}

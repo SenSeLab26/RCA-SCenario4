@@ -1,0 +1,13 @@
+{
+  "run_id": "run_memleak_test",
+  "url": "http://127.0.0.1:30080/order",
+  "rps": 42.0,
+  "duration_s": 110.0,
+  "workers": 192,
+  "client_timeout_s": 10.0,
+  "start_epoch": 1785921503.60673,
+  "end_epoch": 1785921623.60496,
+  "chaos_at_offset_s": null,
+  "chaos_mode": null,
+  "fault_at": null
+}

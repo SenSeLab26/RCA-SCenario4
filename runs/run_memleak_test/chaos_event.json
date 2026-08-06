@@ -1,0 +1,31 @@
+{
+  "fault_type": "memory_leak",
+  "scenario": 1,
+  "mode": "memory_leak",
+  "fault_at": 1785921518.609411,
+  "detail": "leaking 200.0 KB per request on 3 replicas",
+  "targets": [
+    "order-backend-ffd9d5fd7-4kng2",
+    "order-backend-ffd9d5fd7-5qc2t",
+    "order-backend-ffd9d5fd7-7tdg2"
+  ],
+  "target_pod": "order-backend-ffd9d5fd7-4kng2",
+  "target_node": "rca4-worker3",
+  "replicas_before": [
+    {
+      "pod": "order-backend-ffd9d5fd7-4kng2",
+      "node": "rca4-worker3",
+      "ready": true
+    },
+    {
+      "pod": "order-backend-ffd9d5fd7-5qc2t",
+      "node": "rca4-worker4",
+      "ready": true
+    },
+    {
+      "pod": "order-backend-ffd9d5fd7-7tdg2",
+      "node": "rca4-worker2",
+      "ready": true
+    }
+  ]
+}

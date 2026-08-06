@@ -1,0 +1,24 @@
+{
+  "mode": "node",
+  "target_pod": "order-backend-854dc5555d-whx65",
+  "target_node": "rca4-worker2",
+  "fault_at": 1786011433.213538,
+  "detail": "node container rca4-worker2 hard-killed (hosted order-backend-854dc5555d-whx65)",
+  "replicas_before": [
+    {
+      "pod": "order-backend-854dc5555d-qb8r7",
+      "node": "rca4-worker3",
+      "ready": true
+    },
+    {
+      "pod": "order-backend-854dc5555d-sxd97",
+      "node": "rca4-worker4",
+      "ready": true
+    },
+    {
+      "pod": "order-backend-854dc5555d-whx65",
+      "node": "rca4-worker2",
+      "ready": true
+    }
+  ]
+}

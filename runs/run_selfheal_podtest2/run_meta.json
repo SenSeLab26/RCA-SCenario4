@@ -1,0 +1,13 @@
+{
+  "run_id": "run_selfheal_podtest2",
+  "url": "http://127.0.0.1:30080/order",
+  "rps": 42.0,
+  "duration_s": 80.0,
+  "workers": 192,
+  "client_timeout_s": 10.0,
+  "start_epoch": 1785906324.53925,
+  "end_epoch": 1785906408.661741,
+  "chaos_at_offset_s": 20.0,
+  "chaos_mode": "pod",
+  "fault_at": 1785906344.726045
+}

@@ -1,0 +1,6 @@
+t_rel,epoch,event,detail
+-0.0,1785906079.0,replacement created,order-backend-7447799fb-8lbzc on rca4-worker3
+-0.0,1785906079.0,replacement scheduled,order-backend-7447799fb-8lbzc on rca4-worker3
+0.0,1785906079.0325708,fault injected,pod rca4-worker3
+19.0,1785906098.0,replacement containers ready,order-backend-7447799fb-8lbzc on rca4-worker3
+19.0,1785906098.0,replacement Ready (accepting traffic),order-backend-7447799fb-8lbzc on rca4-worker3

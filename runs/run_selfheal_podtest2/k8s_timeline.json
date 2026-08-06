@@ -1,0 +1,131 @@
+{
+  "fault": {
+    "mode": "pod",
+    "target_pod": "order-backend-7d669fd9d4-q6b9z",
+    "target_node": "rca4-worker2",
+    "fault_at": 1785906344.726045,
+    "detail": "pod order-backend-7d669fd9d4-q6b9z force-deleted on node rca4-worker2",
+    "replicas_before": [
+      {
+        "pod": "order-backend-7d669fd9d4-6s49c",
+        "node": "rca4-worker3",
+        "ready": true
+      },
+      {
+        "pod": "order-backend-7d669fd9d4-f7dcc",
+        "node": "rca4-worker4",
+        "ready": true
+      },
+      {
+        "pod": "order-backend-7d669fd9d4-q6b9z",
+        "node": "rca4-worker2",
+        "ready": true
+      }
+    ]
+  },
+  "events": [
+    {
+      "event": "replacement created",
+      "detail": "order-backend-7d669fd9d4-56dv9 on rca4-worker2",
+      "epoch": 1785906344.0,
+      "t_rel": -0.7
+    },
+    {
+      "event": "fault injected",
+      "detail": "pod rca4-worker2",
+      "epoch": 1785906344.726045,
+      "t_rel": 0.0
+    },
+    {
+      "event": "replacement scheduled",
+      "detail": "order-backend-7d669fd9d4-56dv9 on rca4-worker2",
+      "epoch": 1785906345.0,
+      "t_rel": 0.3
+    },
+    {
+      "event": "replacement container started",
+      "detail": "order-backend-7d669fd9d4-56dv9 on rca4-worker2",
+      "epoch": 1785906345.0,
+      "t_rel": 0.3
+    },
+    {
+      "event": "replacement Ready (accepting traffic)",
+      "detail": "order-backend-7d669fd9d4-56dv9 on rca4-worker2",
+      "epoch": 1785906363.0,
+      "t_rel": 18.3
+    }
+  ],
+  "pods_observed": {
+    "order-backend-7d669fd9d4-6s49c": {
+      "pod": "order-backend-7d669fd9d4-6s49c",
+      "node": "rca4-worker3",
+      "created": 1785906281.0,
+      "phase": "Running",
+      "Initialized": 1785906281.0,
+      "Ready": 1785906301.0,
+      "ContainersReady": 1785906301.0,
+      "PodScheduled": 1785906281.0,
+      "ContainerStarted": 1785906284.0
+    },
+    "order-backend-7d669fd9d4-f7dcc": {
+      "pod": "order-backend-7d669fd9d4-f7dcc",
+      "node": "rca4-worker4",
+      "created": 1785906301.0,
+      "phase": "Running",
+      "Initialized": 1785906301.0,
+      "Ready": 1785906319.0,
+      "ContainersReady": 1785906319.0,
+      "PodScheduled": 1785906301.0,
+      "ContainerStarted": 1785906302.0
+    },
+    "order-backend-7d669fd9d4-q6b9z": {
+      "pod": "order-backend-7d669fd9d4-q6b9z",
+      "node": "rca4-worker2",
+      "created": 1785906261.0,
+      "phase": "Running",
+      "Initialized": 1785906261.0,
+      "Ready": 1785906281.0,
+      "ContainersReady": 1785906281.0,
+      "PodScheduled": 1785906261.0,
+      "ContainerStarted": 1785906262.0
+    },
+    "order-backend-7d669fd9d4-56dv9": {
+      "pod": "order-backend-7d669fd9d4-56dv9",
+      "node": "rca4-worker2",
+      "created": 1785906344.0,
+      "phase": "Running",
+      "PodScheduled": 1785906345.0,
+      "Initialized": 1785906345.0,
+      "ContainerStarted": 1785906345.0,
+      "Ready": 1785906363.0,
+      "ContainersReady": 1785906363.0
+    }
+  },
+  "nodes_observed": {
+    "rca4-control-plane": {
+      "node": "rca4-control-plane",
+      "ready_status": "True",
+      "last_transition": 1785052233.0
+    },
+    "rca4-worker": {
+      "node": "rca4-worker",
+      "ready_status": "True",
+      "last_transition": 1785223570.0
+    },
+    "rca4-worker2": {
+      "node": "rca4-worker2",
+      "ready_status": "True",
+      "last_transition": 1785905933.0
+    },
+    "rca4-worker3": {
+      "node": "rca4-worker3",
+      "ready_status": "True",
+      "last_transition": 1785219359.0
+    },
+    "rca4-worker4": {
+      "node": "rca4-worker4",
+      "ready_status": "True",
+      "last_transition": 1784982262.0
+    }
+  }
+}

@@ -1,0 +1,24 @@
+{
+  "mode": "pod",
+  "target_pod": "order-backend-7447799fb-rgggk",
+  "target_node": "rca4-worker3",
+  "fault_at": 1785906079.0325708,
+  "detail": "pod order-backend-7447799fb-rgggk force-deleted on node rca4-worker3",
+  "replicas_before": [
+    {
+      "pod": "order-backend-7447799fb-6z9wr",
+      "node": "rca4-worker2",
+      "ready": true
+    },
+    {
+      "pod": "order-backend-7447799fb-dkp98",
+      "node": "rca4-worker4",
+      "ready": true
+    },
+    {
+      "pod": "order-backend-7447799fb-rgggk",
+      "node": "rca4-worker3",
+      "ready": true
+    }
+  ]
+}

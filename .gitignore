@@ -14,3 +14,16 @@ __pycache__/
 # Raw Jaeger exports are large and regenerable from a run; the flattened
 # CSVs and the charts are small and worth keeping in the repo.
 runs/*/raw_trace_data.json
+
+present.md 
+
+GLOSSARY.md 
+
+RCA-SCenario4/docs/implementation-code.tex
+RCA-SCenario4/docs/scenario-consolidation-plan.md
+RCA-SCenario4/docs/scenario4.tex
+
+
+
+
+
