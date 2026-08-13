@@ -144,16 +144,31 @@ def fault_dependency_down(args, pods):
 
 
 def fault_config_error(args, pods):
-    """Scenario 2: a deploy that points at a hostname which does not exist.
+    """Scenario 2: a deploy that points the gateway at the wrong port.
 
-    Unlike the other faults there is no healthy period afterwards, because the
-    misconfiguration is wrong from its very first request. That absence of a
-    baseline is itself the distinguishing signature.
+    A wrong *port* rather than a wrong *hostname*, and the reason is a measured
+    finding worth reporting on its own.
+
+    We first tried a hostname that does not resolve. It never reached a single
+    user. The new gateway Pod could not resolve the name, so it never passed its
+    readiness probe, so the rolling update never completed, so Kubernetes kept
+    the old working Pod serving traffic. The bad configuration was contained
+    entirely by the readiness gate. That is correct and desirable behaviour, but
+    it means the fault produces no observable incident.
+
+    A wrong port behaves differently and is just as realistic a typo. The
+    hostname resolves, so the Pod starts and becomes Ready, and then every
+    request fails at connect time. Because the failure is a refused connection
+    rather than a timeout, the errors are fast - which is exactly what separates
+    this fault from dependency_down, where requests hang for the full timeout.
     """
+    bad_url = f"http://localhost:{args.bad_port}/order"
     run(["kubectl", "-n", NAMESPACE, "set", "env", "deployment/api-gateway",
-         f"BACKEND_URL=http://{args.bad_host}:8000/order"])
+         f"BACKEND_URL={bad_url}"])
+    run(["kubectl", "-n", NAMESPACE, "rollout", "status",
+         "deployment/api-gateway", "--timeout=90s"], check=False)
     return {"targets": ["api-gateway"],
-            "detail": f"gateway BACKEND_URL repointed to http://{args.bad_host}:8000/order"}
+            "detail": f"gateway BACKEND_URL repointed to {bad_url} (wrong port)"}
 
 
 def fault_network_partition(args, pods):
@@ -165,7 +180,12 @@ def fault_network_partition(args, pods):
     partition different from a crash.
     """
     pod, node = pick_ready(pods, args.target)
-    run(["kubectl", "-n", NAMESPACE, "label", "pod", pod, "app-"])
+    # Removing the Service selector label was tried first. It did not work:
+    # taking the label off orphans the Pod from its ReplicaSet, which
+    # immediately creates a replacement, so capacity never actually drops and
+    # the partition is invisible. Failing only the readiness probe keeps the Pod
+    # inside its ReplicaSet, so no replacement appears and capacity really falls.
+    pod_control(pod, {"fail_healthz": 1})
     return {"targets": [pod],
             "detail": f"{pod} on {node} removed from the Service while still running"}
 
@@ -217,7 +237,7 @@ def main():
                         help="cpu_saturation: ms of CPU burned per request (default 90)")
     parser.add_argument("--delay-ms", type=float, default=2000,
                         help="dependency_slow: ms added per request (default 2000)")
-    parser.add_argument("--bad-host", default="order-backend-typo",
+    parser.add_argument("--bad-port", type=int, default=9999,
                         help="config_error: the hostname to point the gateway at")
     args = parser.parse_args()
 
