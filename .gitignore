@@ -18,12 +18,13 @@ runs/*/raw_trace_data.json
 present.md 
 
 GLOSSARY.md 
-
-RCA-SCenario4/docs/implementation-code.tex
-RCA-SCenario4/docs/scenario-consolidation-plan.md
-RCA-SCenario4/docs/scenario4.tex
-
+docs/implementation-code.tex
+docs/scenario-consolidation-plan.md
+docs/scenario4.tex
 
 
 
 
+docs/supervisor-update-2026-08-10.md
+
+ runs/demo/
