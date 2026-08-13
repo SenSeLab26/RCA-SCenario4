@@ -1,0 +1,31 @@
+{
+  "fault_type": "dependency_slow",
+  "scenario": 2,
+  "mode": "dependency_slow",
+  "fault_at": 1786376325.351228,
+  "detail": "adding 1000.0 ms to every request on 3 replicas",
+  "targets": [
+    "order-backend-94547bb4f-jmvzk",
+    "order-backend-94547bb4f-k4szn",
+    "order-backend-94547bb4f-wcvhw"
+  ],
+  "target_pod": "order-backend-94547bb4f-jmvzk",
+  "target_node": "rca4-worker3",
+  "replicas_before": [
+    {
+      "pod": "order-backend-94547bb4f-jmvzk",
+      "node": "rca4-worker3",
+      "ready": true
+    },
+    {
+      "pod": "order-backend-94547bb4f-k4szn",
+      "node": "rca4-worker2",
+      "ready": true
+    },
+    {
+      "pod": "order-backend-94547bb4f-wcvhw",
+      "node": "rca4-worker4",
+      "ready": true
+    }
+  ]
+}

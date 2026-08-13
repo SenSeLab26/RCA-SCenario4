@@ -1,0 +1,29 @@
+{
+  "fault_type": "network_partition",
+  "scenario": 3,
+  "mode": "network_partition",
+  "fault_at": 1786377732.440887,
+  "detail": "order-backend-868fd7d779-zs8w8 on rca4-worker4 removed from the Service while still running",
+  "targets": [
+    "order-backend-868fd7d779-zs8w8"
+  ],
+  "target_pod": "order-backend-868fd7d779-zs8w8",
+  "target_node": "rca4-worker4",
+  "replicas_before": [
+    {
+      "pod": "order-backend-868fd7d779-bqxn5",
+      "node": "rca4-worker2",
+      "ready": true
+    },
+    {
+      "pod": "order-backend-868fd7d779-kzf2c",
+      "node": "rca4-worker3",
+      "ready": true
+    },
+    {
+      "pod": "order-backend-868fd7d779-zs8w8",
+      "node": "rca4-worker4",
+      "ready": true
+    }
+  ]
+}

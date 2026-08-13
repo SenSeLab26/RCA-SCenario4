@@ -1,0 +1,31 @@
+{
+  "fault_type": "dependency_down",
+  "scenario": 2,
+  "mode": "dependency_down",
+  "fault_at": 1786376500.132849,
+  "detail": "order-backend scaled to 0 replicas; every endpoint removed",
+  "targets": [
+    "order-backend-7bd8975c7-2zz5p",
+    "order-backend-7bd8975c7-7jvhk",
+    "order-backend-7bd8975c7-8rcxd"
+  ],
+  "target_pod": "order-backend-7bd8975c7-2zz5p",
+  "target_node": "rca4-worker2",
+  "replicas_before": [
+    {
+      "pod": "order-backend-7bd8975c7-2zz5p",
+      "node": "rca4-worker2",
+      "ready": true
+    },
+    {
+      "pod": "order-backend-7bd8975c7-7jvhk",
+      "node": "rca4-worker3",
+      "ready": true
+    },
+    {
+      "pod": "order-backend-7bd8975c7-8rcxd",
+      "node": "rca4-worker4",
+      "ready": true
+    }
+  ]
+}

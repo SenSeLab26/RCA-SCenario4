@@ -1,0 +1,13 @@
+{
+  "run_id": "heal_proactive",
+  "url": "http://127.0.0.1:30080/order",
+  "rps": 6.0,
+  "duration_s": 190.0,
+  "workers": 192,
+  "client_timeout_s": 10.0,
+  "start_epoch": 1786438114.358667,
+  "end_epoch": 1786438308.314695,
+  "chaos_at_offset_s": null,
+  "chaos_mode": null,
+  "fault_at": null
+}

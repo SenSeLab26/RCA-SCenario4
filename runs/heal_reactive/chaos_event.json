@@ -1,0 +1,31 @@
+{
+  "fault_type": "memory_leak",
+  "scenario": 1,
+  "mode": "memory_leak",
+  "fault_at": 1786437835.21747,
+  "detail": "leaking 1.5 MB/s on 3 replicas",
+  "targets": [
+    "order-backend-54d8876f9-5d9fc",
+    "order-backend-54d8876f9-9x9c8",
+    "order-backend-54d8876f9-pmcs9"
+  ],
+  "target_pod": "order-backend-54d8876f9-5d9fc",
+  "target_node": "rca4-worker4",
+  "replicas_before": [
+    {
+      "pod": "order-backend-54d8876f9-5d9fc",
+      "node": "rca4-worker4",
+      "ready": true
+    },
+    {
+      "pod": "order-backend-54d8876f9-9x9c8",
+      "node": "rca4-worker2",
+      "ready": true
+    },
+    {
+      "pod": "order-backend-54d8876f9-pmcs9",
+      "node": "rca4-worker3",
+      "ready": true
+    }
+  ]
+}

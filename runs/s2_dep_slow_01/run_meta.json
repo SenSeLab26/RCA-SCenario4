@@ -1,0 +1,13 @@
+{
+  "run_id": "s2_dep_slow_01",
+  "url": "http://127.0.0.1:30080/order",
+  "rps": 3.0,
+  "duration_s": 75.0,
+  "workers": 192,
+  "client_timeout_s": 10.0,
+  "start_epoch": 1786376305.616642,
+  "end_epoch": 1786376385.4108968,
+  "chaos_at_offset_s": null,
+  "chaos_mode": null,
+  "fault_at": null
+}

@@ -1,0 +1,31 @@
+{
+  "fault_type": "cpu_saturation",
+  "scenario": 1,
+  "mode": "cpu_saturation",
+  "fault_at": 1786378076.5754828,
+  "detail": "burning 200.0 ms of CPU per request on 3 replicas",
+  "targets": [
+    "order-backend-5b566f6495-cvt9f",
+    "order-backend-5b566f6495-m7twd",
+    "order-backend-5b566f6495-qgtdc"
+  ],
+  "target_pod": "order-backend-5b566f6495-cvt9f",
+  "target_node": "rca4-worker2",
+  "replicas_before": [
+    {
+      "pod": "order-backend-5b566f6495-cvt9f",
+      "node": "rca4-worker2",
+      "ready": true
+    },
+    {
+      "pod": "order-backend-5b566f6495-m7twd",
+      "node": "rca4-worker4",
+      "ready": true
+    },
+    {
+      "pod": "order-backend-5b566f6495-qgtdc",
+      "node": "rca4-worker3",
+      "ready": true
+    }
+  ]
+}

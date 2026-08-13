@@ -1,0 +1,29 @@
+{
+  "fault_type": "config_error",
+  "scenario": 2,
+  "mode": "config_error",
+  "fault_at": 1786377587.639215,
+  "detail": "gateway BACKEND_URL repointed to http://localhost:9999/order (wrong port)",
+  "targets": [
+    "api-gateway"
+  ],
+  "target_pod": "api-gateway",
+  "target_node": null,
+  "replicas_before": [
+    {
+      "pod": "order-backend-6558bf5b47-27hml",
+      "node": "rca4-worker4",
+      "ready": true
+    },
+    {
+      "pod": "order-backend-6558bf5b47-7d9hk",
+      "node": "rca4-worker2",
+      "ready": true
+    },
+    {
+      "pod": "order-backend-6558bf5b47-fsbbt",
+      "node": "rca4-worker3",
+      "ready": true
+    }
+  ]
+}
