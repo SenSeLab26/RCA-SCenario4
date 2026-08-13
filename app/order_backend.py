@@ -71,6 +71,7 @@ fault = {
     "leak_mb_per_sec": 0,       # memory leak: MB retained per second of wall clock
     "cpu_burn_ms": 0,           # CPU saturation: real busy-wait instead of sleep
     "extra_delay_ms": 0,        # dependency slowdown: grows the queue
+    "fail_healthz": 0,          # network partition: fail the readiness probe only
 }
 
 # The leaked memory itself. Nothing ever removes items from this list, which is
@@ -124,6 +125,23 @@ def _leak_worker():
 threading.Thread(target=_leak_worker, daemon=True).start()
 
 
+def cgroup_value(name):
+    """Read one number from the container's cgroup, or 0 if it is unavailable.
+
+    These files are how the kernel reports what the container is actually using
+    and what it is allowed to use, so they are the honest source for a memory
+    figure. `memory.max` reads "max" when no limit is set, which we report as 0.
+    """
+    for path in (f"/sys/fs/cgroup/{name}", f"/sys/fs/cgroup/memory/{name}"):
+        try:
+            with open(path) as handle:
+                raw = handle.read().strip()
+            return 0.0 if raw == "max" else float(raw)
+        except (OSError, ValueError):
+            continue
+    return 0.0
+
+
 def burn_cpu(milliseconds):
     """Occupy the CPU for real, so the container's CPU limit throttles us."""
     deadline = time.perf_counter() + milliseconds / 1000.0
@@ -170,15 +188,37 @@ class Handler(BaseHTTPRequestHandler):
     def do_GET(self):
         # Probes must never queue behind application work, so handle them first.
         if self.path.startswith("/healthz"):
-            warm = is_warm()
+            # `fail_healthz` models a network partition. The process stays alive
+            # and /order keeps working perfectly, but the kubelet can no longer
+            # confirm the replica is reachable, so Kubernetes removes it from the
+            # load balancer. Crucially the Pod is still a member of its
+            # ReplicaSet, so no replacement is created and capacity really drops.
+            warm = is_warm() and not fault["fail_healthz"]
             self._respond(
                 200 if warm else 503,
-                {"ready": warm, "pod": POD_NAME, "node": NODE_NAME},
+                {"ready": warm, "pod": POD_NAME, "node": NODE_NAME,
+                 "partitioned": bool(fault["fail_healthz"])},
             )
             return
 
         if self.path.startswith("/livez"):
             self._respond(200, {"alive": True, "pod": POD_NAME})
+            return
+
+        # Real memory figures, read from the kernel rather than from our own
+        # bookkeeping. This is what makes proactive healing possible: a
+        # controller can watch memory climb towards the limit and act before the
+        # kernel kills the container, instead of waiting for the OOMKill.
+        if self.path.startswith("/metrics"):
+            self._respond(200, {
+                "pod": POD_NAME,
+                "node": NODE_NAME,
+                "memory_used_mb": round(cgroup_value("memory.current") / (1024 * 1024), 1),
+                "memory_limit_mb": round(cgroup_value("memory.max") / (1024 * 1024), 1),
+                "leaked_mb": round(leaked_mb(), 1),
+                "uptime_s": round(time.time() - STARTED_AT, 1),
+                "ready": is_warm() and not fault["fail_healthz"],
+            })
             return
 
         # Runtime fault control. Injecting through this endpoint rather than
