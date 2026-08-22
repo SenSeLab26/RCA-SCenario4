@@ -179,14 +179,14 @@ def fire_chaos(args, run_dir, delay, stop_event, fault_holder):
         return
     event_path = os.path.join(run_dir, "chaos_event.json")
     if os.path.exists(event_path):
-        with open(event_path) as handle:
+        with open(event_path, encoding="utf-8") as handle:
             fault_holder.update(json.load(handle))
     print(f"{'=' * 70}\n")
 
 
 def write_metrics(buckets, run_dir, fault_at):
     path = os.path.join(run_dir, "loadgen_metrics.csv")
-    with open(path, "w", newline="") as handle:
+    with open(path, "w", newline="", encoding="utf-8") as handle:
         writer = csv.writer(handle)
         writer.writerow([
             "second_epoch", "t_rel", "clock", "sent", "ok", "err",
@@ -307,4 +307,9 @@ def main():
 
 
 if __name__ == "__main__":
-    main()
+    # Every run is also saved to results/ as a numbered, timestamped text, CSV
+    # and PDF report, so the terminal output is never the only copy.
+    from run_report import RunReport
+
+    with RunReport("scenario-4", "load_generator"):
+        main()
