@@ -1,57 +1,90 @@
-%% Sequence diagram for Scenario 4: Kubernetes Fault Tolerance & Rerouting
-%%
-%% Render to PNG with:
-%%   npx -y @mermaid-js/mermaid-cli@11 -i docs/sequence-diagram-scenario4.mmd \
-%%       -o docs/sequence-diagram-scenario4.png -b white -s 3
-%%
-%% Or paste the code below into https://mermaid.live and export the PNG.
-
+%%{init: {'theme':'base', 'themeVariables': {
+  'fontFamily':'Helvetica, Arial, sans-serif',
+  'fontSize':'15px',
+  'actorBkg':'#0E7C7B',
+  'actorBorder':'#075A59',
+  'actorTextColor':'#FFFFFF',
+  'actorLineColor':'#9CA3AF',
+  'signalColor':'#374151',
+  'signalTextColor':'#111827',
+  'labelBoxBkgColor':'#EEF3FD',
+  'labelBoxBorderColor':'#326CE5',
+  'labelTextColor':'#111827',
+  'noteBkgColor':'#FDF0EF',
+  'noteBorderColor':'#C0392B',
+  'noteTextColor':'#111827',
+  'sequenceNumberColor':'#FFFFFF'
+}}}%%
 sequenceDiagram
     autonumber
-    actor Users as End Users
-    participant GW as Level 1: API Gateway
-    participant LB as Load Balancer
-    participant SV as Surviving Replicas 1 and 2
-    participant R3 as Replica 3 on Node C
-    participant NR as Replacement Replica
-    participant KCP as Kubernetes Control Plane
-    participant JG as OpenTelemetry, Jaeger and AI
 
-    Note over Users,R3: PHASE 0 - HEALTHY BASELINE (42 requests per second)
-    Users->>GW: Continuous order requests
-    GW->>LB: Forward request
-    LB->>SV: Two thirds of traffic
-    LB->>R3: One third of traffic
-    R3-->>GW: 200 OK (about 110 ms)
-    GW->>JG: Trace: HEALTHY (records serving pod and node)
+    box rgb(240,241,243) Outside the cluster
+        participant LG as Load generator<br/>42 requests per second
+    end
+    box rgb(253,240,239) The injected fault
+        participant CH as Chaos command<br/>docker kill node C
+    end
+    box rgb(238,243,253) The orchestrator
+        participant KCP as Kubernetes<br/>control plane
+    end
+    box rgb(237,247,247) The application under test
+        participant GW as API Gateway<br/>5 s request budget
+        participant SVC as order-backend Service<br/>the load balancer
+        participant SV as Replicas 1 and 2<br/>nodes A and B
+        participant R3 as Third replica<br/>node C, then a fresh copy
+    end
+    box rgb(238,243,253) Observability and AI
+        participant OT as OpenTelemetry<br/>and Jaeger
+        participant ML as Recovery-time<br/>model
+    end
 
-    Note over R3: FAULT INJECTED - Node C is killed instantly
+    rect rgb(237,247,247)
+    Note over LG,ML: PHASE 0 - HEALTHY BASELINE. Three replicas, 70 percent of capacity.
+    LG->>GW: Order requests, 42 every second
+    GW->>SVC: Forward each request on a new connection
+    SVC->>SV: Two thirds of the traffic
+    SVC->>R3: One third of the traffic
+    R3-->>GW: 200 OK, median 110 ms
+    GW->>OT: Trace: healthy, with the serving pod and node recorded
+    Note over SV,R3: Each replica serves 2 requests at a time, 0.1 s each,<br/>so 20 per second. Three replicas give 60 per second.
+    end
 
-    Note over Users,KCP: PHASE 1 - BLACK HOLE (about 40 s)
-    Users->>GW: Requests continue
-    GW->>LB: Forward request
-    LB--xR3: One third of traffic still sent to the dead replica
-    R3--xGW: No response - Gateway gives up after 5 s
-    GW->>JG: Trace: ERROR (upstream timeout)
-    Note right of GW: Failures spike, but the surviving path stays fast
-    KCP->>LB: Node C missed its heartbeats - remove it from the endpoints
+    rect rgb(253,240,239)
+    Note over LG,ML: PHASE 1 - BLACK HOLE, about 45 s. Kubernetes does not know the node is gone.
+    CH->>R3: Kill node C instantly, 60 s into the run
+    LG->>GW: Requests continue
+    GW->>SVC: Forward each request
+    SVC-xR3: One third of the traffic is still routed to the dead node
+    R3--xGW: No reply. The gateway gives up after 5 s.
+    GW->>OT: Trace: ERROR, upstream timeout
+    Note right of GW: One request in three fails, yet the requests that<br/>reach a living replica are still fast. That mixture is<br/>what makes the fault hard to read.
+    KCP->>SVC: 40 s of missed heartbeats. Remove the dead endpoint.
+    end
 
-    Note over Users,SV: PHASE 2 - BROWNOUT (two replicas carry all the load)
-    Users->>GW: Requests continue
-    GW->>LB: Forward request
-    LB->>SV: All of the traffic
-    SV-->>GW: 200 OK but slow - queue grows to about 1900 ms
-    GW->>JG: Trace: HEALTHY but heavily degraded latency
-    Note right of LB: No failures now, but roughly 15 times slower
+    rect rgb(255,247,237)
+    Note over LG,ML: PHASE 2 - BROWNOUT. Two replicas absorb all of the traffic.
+    LG->>GW: Requests continue
+    GW->>SVC: Forward each request
+    SVC->>SV: All of the traffic
+    SV-->>GW: 200 OK, but the queue grows. Median 110 ms climbs to about 1,900 ms.
+    GW->>OT: Trace: healthy, but latency is heavily degraded
+    Note right of SV: 42 requests per second against 40 per second of<br/>capacity. There are no failures at all now, yet the<br/>service is roughly 15 times slower. An alarm that<br/>watches only the error rate reports success.
+    end
 
-    Note over KCP,NR: PHASE 3 - RECOVERY
-    KCP->>NR: Schedule a replacement replica on a surviving node
-    Note right of NR: Not usable yet - 15 s warm-up
-    NR->>LB: Readiness probe passes - added to the endpoints
-    LB->>NR: Traffic resumes across three replicas
-    NR-->>GW: 200 OK - backlog drains, latency returns to baseline
-    GW->>JG: Trace: HEALTHY (back to about 110 ms)
+    rect rgb(237,247,247)
+    Note over LG,ML: PHASE 3 - RECOVERY
+    KCP->>R3: Node C is gone, so start a fresh copy on a surviving node
+    Note right of R3: The new copy refuses traffic for its first 15 s while it<br/>warms up, so a replacement is scheduled long before<br/>it is of any use.
+    SVC->>R3: Readiness probe: can you serve traffic yet?
+    R3-->>SVC: Ready. Add me back to the endpoints.
+    SVC->>R3: Traffic spreads across three replicas again
+    R3-->>GW: 200 OK. The backlog drains and latency falls back to baseline.
+    GW->>OT: Trace: healthy, back to about 110 ms
+    end
 
-    Note over JG: DATA PIPELINE AND PREDICTION
-    JG->>JG: Flatten traces to one row per second and label each second
-    JG->>Users: "Node failure detected. Estimated time to full restabilization: 124 s"
+    rect rgb(238,243,253)
+    Note over OT,ML: PREDICTING THE REMAINING RECOVERY TIME
+    OT->>ML: One row per second: request rate, error rate, median and<br/>95th percentile latency, replicas serving, latency slope
+    Note over ML: Recovered means the 95th percentile is back within 25 percent<br/>of baseline, errors are back to normal, and all three replicas<br/>are serving, held for 8 of the next 10 seconds.
+    ML-->>LG: "Node failure. About 103 s to full recovery." MAE 13.1 s, R-squared 0.815
+    end
