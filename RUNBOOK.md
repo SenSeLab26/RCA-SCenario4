@@ -280,3 +280,33 @@ standalone Jaeger that Scenarios 1-3 use. Both can run at once.
 - **Everything is slow and erratic all the time** — five node containers plus two
   Python processes on a machine with under 4 GB for Docker. Lower `--rps`, or give
   OrbStack more memory.
+
+---
+
+## Running on Windows
+
+Everything here works on Windows, with two adjustments.
+
+**The three `.sh` scripts need a bash shell.** Use **Git Bash**, which comes with
+Git for Windows, or a WSL 2 terminal. Docker Desktop already requires WSL 2, so
+one of the two is certainly installed. Open Git Bash in the `RCA-SCenario4`
+folder and run `bash scripts/cluster_up.sh` exactly as written.
+
+**Paths and variables differ between shells.** In Git Bash use `RUN=runs/...`
+and `"$RUN"`. In PowerShell use `$RUN = "runs\..."` and `$RUN`. Everything that
+starts with `python scripts\...` works in PowerShell once the virtual
+environment is active.
+
+Common Windows-specific failures:
+
+- `docker: invalid reference format` - the command was copied with backslash
+  line continuations. Put it on one line, or run it in Git Bash.
+- `No matching distribution found` - upgrade pip first with
+  `python -m pip install --upgrade pip`.
+- `running scripts is disabled on this system` - PowerShell blocks the venv
+  activation script. Run `Set-ExecutionPolicy -Scope Process -ExecutionPolicy Bypass`.
+- The cluster never becomes Ready - WSL 2 has too little memory. Create
+  `%UserProfile%\.wslconfig` with `[wsl2]` and `memory=6GB`, then run
+  `wsl --shutdown` and restart Docker Desktop.
+- `kind: command not found` - install with `winget install Kubernetes.kind` and
+  open a new terminal so PATH is refreshed.
