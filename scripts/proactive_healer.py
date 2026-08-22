@@ -209,11 +209,16 @@ def main():
             args.run_dir if os.path.isabs(args.run_dir)
             else os.path.join(ROOT, args.run_dir), "proactive_actions.json")
         os.makedirs(os.path.dirname(path), exist_ok=True)
-        with open(path, "w") as handle:
+        with open(path, "w", encoding="utf-8") as handle:
             json.dump({"mode": mode, "act_before_s": args.act_before,
                        "actions": actions}, handle, indent=2)
         print(f"\nAction log written to {path}")
 
 
 if __name__ == "__main__":
-    main()
+    # Every run is also saved to results/ as a numbered, timestamped text, CSV
+    # and PDF report, so the terminal output is never the only copy.
+    from run_report import RunReport
+
+    with RunReport("scenario-4", "proactive_healer"):
+        main()
