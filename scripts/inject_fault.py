@@ -287,7 +287,7 @@ def main():
     if args.run_dir:
         os.makedirs(args.run_dir, exist_ok=True)
         path = os.path.join(args.run_dir, "chaos_event.json")
-        with open(path, "w") as handle:
+        with open(path, "w", encoding="utf-8") as handle:
             json.dump(event, handle, indent=2)
         print(f">>> event recorded to {path}")
     else:
