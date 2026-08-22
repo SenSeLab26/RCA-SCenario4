@@ -271,7 +271,7 @@ def main():
     chaos_path = os.path.join(run_dir, "chaos_event.json")
     chaos = {}
     if os.path.exists(chaos_path):
-        with open(chaos_path) as handle:
+        with open(chaos_path, encoding="utf-8") as handle:
             chaos = json.load(handle)
     else:
         print(f"WARNING: {chaos_path} not found, so events cannot be placed "
@@ -282,12 +282,12 @@ def main():
                    mode=chaos.get("mode", "node"))
 
     json_path = os.path.join(run_dir, "k8s_timeline.json")
-    with open(json_path, "w") as handle:
+    with open(json_path, "w", encoding="utf-8") as handle:
         json.dump({"fault": chaos, "events": events,
                    "pods_observed": pods, "nodes_observed": nodes}, handle, indent=2)
 
     csv_path = os.path.join(run_dir, "k8s_timeline.csv")
-    with open(csv_path, "w") as handle:
+    with open(csv_path, "w", encoding="utf-8") as handle:
         handle.write("t_rel,epoch,event,detail\n")
         for event in events:
             t_rel = "" if event["t_rel"] is None else event["t_rel"]
