@@ -39,6 +39,8 @@ from sklearn.metrics import (ConfusionMatrixDisplay, accuracy_score, confusion_m
 from sklearn.model_selection import LeaveOneGroupOut
 from sklearn.tree import DecisionTreeClassifier
 
+from autoregression import AutoRegression
+
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
 FEATURES = ["req_count", "err_rate", "p50_ms", "p95_ms", "max_ms",
@@ -48,6 +50,17 @@ EXPECTED_REPLICAS = 3
 HOLD_WINDOW = 10        # seconds that must look healthy
 HOLD_REQUIRED = 8       # of which at least this many must be healthy
 LATENCY_TOLERANCE = 1.25
+AR_LAGS = 5             # seconds of history the AR model looks back at
+
+
+# The run report, set in __main__ so that every score printed below also lands in
+# the run's CSV. It stays None when the module is imported rather than run.
+REPORT = None
+
+
+def record(section, model, metric, value):
+    if REPORT is not None:
+        REPORT.metric(section, model, metric, round(float(value), 4))
 
 
 def rmse(actual, predicted):
@@ -63,9 +76,16 @@ def add_recovery_label(df):
         pre = group[group["t_rel"] < 0]
         if pre.empty:
             continue
-        baseline_p50 = float(pre["p50_ms"].median())
+        # The 95th percentile, not the median, and deliberately so. A system is
+        # not "fully restabilized" while one request in twenty is still slow.
+        # This also matches the definition used by scripts/build_dataset.py, so
+        # the two tools report the same recovery time for the same incident. An
+        # earlier version of this file tested the median and reported 103 s for an
+        # incident that build_dataset.py called 88 s, which is the kind of
+        # inconsistency that cannot appear in a published result.
+        baseline_p95 = float(pre["p95_ms"].median())
         baseline_err = float(pre["err_rate"].mean())
-        latency_limit = max(baseline_p50 * LATENCY_TOLERANCE, baseline_p50 + 20)
+        latency_limit = max(baseline_p95 * LATENCY_TOLERANCE, baseline_p95 + 20)
         error_limit = max(baseline_err * 2.0, 0.02)
 
         incident = group[group["t_rel"] >= 0].reset_index(drop=True)
@@ -74,7 +94,7 @@ def add_recovery_label(df):
 
         healthy = ((incident["active_pods"] >= EXPECTED_REPLICAS)
                    & (incident["err_rate"] <= error_limit)
-                   & (incident["p50_ms"] <= latency_limit)).to_numpy()
+                   & (incident["p95_ms"] <= latency_limit)).to_numpy()
 
         recovered_at = None
         for i in range(len(healthy) - HOLD_WINDOW + 1):
@@ -158,6 +178,8 @@ def evaluate_classification(df):
             "true": true_all, "pred": pred_all, "verdicts": verdicts,
         }
         r = results[name]
+        for metric in ("accuracy", "precision", "recall", "f1"):
+            record("classification", name, metric, r[metric])
         print(f"{name:<20} {r['accuracy']:>9.3f} {r['precision']:>10.3f} "
               f"{r['recall']:>8.3f} {r['f1']:>7.3f}")
 
@@ -220,22 +242,123 @@ def evaluate_regression(df):
     print("-" * 74)
 
     splitter = LeaveOneGroupOut()
-    for name, model in {
+    models = {
         "RandomForest": RandomForestRegressor(n_estimators=300, random_state=42),
         "GradientBoosting": GradientBoostingRegressor(random_state=42),
         "LinearRegression": LinearRegression(),
-    }.items():
+    }
+    for name, model in models.items():
         true_all, pred_all = [], []
         for train_idx, test_idx in splitter.split(X, y, groups):
             model.fit(X[train_idx], y[train_idx])
             pred_all.extend(model.predict(X[test_idx]))
             true_all.extend(y[test_idx])
+        record("regression", name, "mae_s", mean_absolute_error(true_all, pred_all))
+        record("regression", name, "rmse_s", rmse(true_all, pred_all))
+        record("regression", name, "r2", r2_score(true_all, pred_all))
+        print(f"{name:<22} {mean_absolute_error(true_all, pred_all):>9.2f} "
+              f"{rmse(true_all, pred_all):>10.2f} {r2_score(true_all, pred_all):>8.3f}")
+
+    # Guard against a subtle form of cheating. Given the elapsed time since the
+    # fault, a model can look almost perfect by subtracting it from a memorised
+    # total, without understanding the system at all. Repeating the evaluation
+    # without that input forces the model to read the shape of the latency and
+    # replica-count curves instead. A small gap between the two means the model
+    # learned the recovery dynamics; a large gap means it was reading a clock.
+    print("\nSame models without the elapsed-time input (a clock-reading check):")
+    print(f"{'model':<22} {'MAE (s)':>9} {'RMSE (s)':>10} {'R2':>8}")
+    print("-" * 74)
+    X_no_clock = labelled[FEATURES].to_numpy(dtype=float)   # FEATURES excludes t_rel
+    for name, model in models.items():
+        true_all, pred_all = [], []
+        for train_idx, test_idx in splitter.split(X_no_clock, y, groups):
+            model.fit(X_no_clock[train_idx], y[train_idx])
+            pred_all.extend(model.predict(X_no_clock[test_idx]))
+            true_all.extend(y[test_idx])
+        record("regression_no_clock", name, "mae_s",
+               mean_absolute_error(true_all, pred_all))
+        record("regression_no_clock", name, "rmse_s", rmse(true_all, pred_all))
+        record("regression_no_clock", name, "r2", r2_score(true_all, pred_all))
         print(f"{name:<22} {mean_absolute_error(true_all, pred_all):>9.2f} "
               f"{rmse(true_all, pred_all):>10.2f} {r2_score(true_all, pred_all):>8.3f}")
 
     print("\nNote: recovery times differ substantially between incidents, and with a")
     print("small number of incidents the model has few examples of each length. These")
     print("numbers should be read as a first result, not a settled one.")
+
+
+def evaluate_autoregression(df):
+    """Forecast the response-time curve one second ahead from its own history.
+
+    The recovery-time model answers "how much longer?". This answers a different
+    and equally practical question during an incident: "is it still getting
+    worse, or has it turned the corner?". Because the telemetry is a time series,
+    the natural model is autoregression: predict the next second from the last
+    few seconds.
+    """
+    print("\n" + "=" * 74)
+    print("AUTOREGRESSION - forecasting the response-time curve one second ahead")
+    print("=" * 74)
+
+    incidents = sorted(df["run_id"].unique())
+    series_by_run = {run: df[df["run_id"] == run].sort_values("t_rel")["p95_ms"]
+                     .to_numpy(dtype=float) for run in incidents}
+    time_by_run = {run: df[df["run_id"] == run].sort_values("t_rel")["t_rel"]
+                   .to_numpy(dtype=float) for run in incidents}
+
+    usable = {r: s for r, s in series_by_run.items() if len(s) > AR_LAGS + 1}
+    if len(usable) < 2:
+        print("Fewer than two incidents are long enough to train and test; skipping.")
+        return {}
+
+    print(f"Validation : leave-one-incident-out, {len(usable)} folds")
+    print(f"Model      : AR({AR_LAGS}) on p95_ms, one second ahead")
+    print(f"Scored on  : every second from {AR_LAGS} onward\n")
+
+    collected = {f"AR({AR_LAGS})": ([], []),
+                 "LinearRegression on elapsed time": ([], []),
+                 "Last value carried forward": ([], [])}
+
+    for held_out in usable:
+        training = [usable[r] for r in usable if r != held_out]
+        target = usable[held_out]
+        times = time_by_run[held_out][:len(target)]
+
+        model = AutoRegression(lags=AR_LAGS).fit(training)
+        actual, predicted = model.predict_one_step(target)
+        collected[f"AR({AR_LAGS})"][0].extend(actual)
+        collected[f"AR({AR_LAGS})"][1].extend(predicted)
+
+        train_rows = df[df["run_id"] != held_out]
+        line = LinearRegression().fit(train_rows[["t_rel"]].to_numpy(dtype=float),
+                                      train_rows["p95_ms"].to_numpy(dtype=float))
+        collected["LinearRegression on elapsed time"][0].extend(target[AR_LAGS:])
+        collected["LinearRegression on elapsed time"][1].extend(
+            line.predict(times[AR_LAGS:].reshape(-1, 1)))
+
+        collected["Last value carried forward"][0].extend(target[AR_LAGS:])
+        collected["Last value carried forward"][1].extend(target[AR_LAGS - 1:-1])
+
+    print(f"{'model':<36} {'MAE (ms)':>10} {'RMSE (ms)':>11} {'R2':>8}")
+    print("-" * 74)
+    scores = {}
+    for name, (actual, predicted) in collected.items():
+        mae = mean_absolute_error(actual, predicted)
+        root = rmse(actual, predicted)
+        r2 = r2_score(actual, predicted)
+        scores[name] = (mae, root, r2)
+        for metric, value in zip(("mae_ms", "rmse_ms", "r2"), (mae, root, r2)):
+            record("autoregression", name, metric, value)
+        print(f"{name:<36} {mae:>10.1f} {root:>11.1f} {r2:>8.3f}")
+
+    whole = AutoRegression(lags=AR_LAGS).fit(list(usable.values()))
+    print(f"\nFitted equation: {whole.describe()}")
+    print("\nA node failure is a step change rather than a smooth curve, so no model")
+    print("can see the very first second of it coming. What autoregression gives is")
+    print("the direction of travel once the incident is under way, which is what")
+    print("separates a system still getting worse from one that is settling.")
+
+    return scores
 
 
 def main():
@@ -263,10 +386,17 @@ def main():
 
     evaluate_classification(df)
     evaluate_regression(df)
+    evaluate_autoregression(df)
 
     print("\n" + "=" * 74)
     print("Done. Every score came from an incident the model had never seen.")
 
 
 if __name__ == "__main__":
-    main()
+    # Every run is also saved to results/ as a numbered, timestamped text, CSV
+    # and PDF report, so the terminal output is never the only copy.
+    from run_report import RunReport
+
+    with RunReport("scenario-4", "evaluate_scenario_models") as report:
+        REPORT = report
+        main()
