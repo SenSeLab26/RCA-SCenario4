@@ -68,7 +68,7 @@ def tag_map(span):
 def load_json(path, what):
     if not os.path.exists(path):
         raise SystemExit(f"ERROR: {path} not found ({what}).")
-    with open(path) as handle:
+    with open(path, encoding="utf-8") as handle:
         return json.load(handle)
 
 
@@ -280,9 +280,9 @@ def append_to_pool(rows, run_id, pool_path):
     os.makedirs(os.path.dirname(pool_path), exist_ok=True)
     existing = []
     if os.path.exists(pool_path):
-        with open(pool_path, newline="") as handle:
+        with open(pool_path, newline="", encoding="utf-8") as handle:
             existing = [r for r in csv.DictReader(handle) if r.get("run_id") != run_id]
-    with open(pool_path, "w", newline="") as handle:
+    with open(pool_path, "w", newline="", encoding="utf-8") as handle:
         writer = csv.DictWriter(handle, fieldnames=FIELDNAMES)
         writer.writeheader()
         writer.writerows(existing)
@@ -374,7 +374,7 @@ def main():
         print("         Rows are written unlabelled, so this run cannot be used for training.")
 
     out_path = os.path.join(run_dir, "recovery_timeseries.csv")
-    with open(out_path, "w", newline="") as handle:
+    with open(out_path, "w", newline="", encoding="utf-8") as handle:
         writer = csv.DictWriter(handle, fieldnames=FIELDNAMES)
         writer.writeheader()
         writer.writerows(rows)
@@ -388,4 +388,9 @@ def main():
 
 
 if __name__ == "__main__":
-    main()
+    # Every run is also saved to results/ as a numbered, timestamped text, CSV
+    # and PDF report, so the terminal output is never the only copy.
+    from run_report import RunReport
+
+    with RunReport("scenario-4", "build_dataset"):
+        main()
