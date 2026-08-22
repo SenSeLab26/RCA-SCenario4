@@ -28,3 +28,6 @@ docs/scenario4.tex
 docs/supervisor-update-2026-08-10.md
 
 runs/demo/
+
+# Per-run reports. Keep the ones you need; they are regenerated on every run.
+results/
