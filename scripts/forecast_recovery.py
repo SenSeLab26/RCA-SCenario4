@@ -303,4 +303,9 @@ def main():
 
 
 if __name__ == "__main__":
-    main()
+    # Every run is also saved to results/ as a numbered, timestamped text, CSV
+    # and PDF report, so the terminal output is never the only copy.
+    from run_report import RunReport
+
+    with RunReport("scenario-4", "forecast_recovery"):
+        main()
