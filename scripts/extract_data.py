@@ -25,7 +25,7 @@ def load_meta(run_dir):
     path = os.path.join(run_dir, "run_meta.json")
     if not os.path.exists(path):
         raise SystemExit(f"ERROR: {path} not found. Run the load generator first.")
-    with open(path) as handle:
+    with open(path, encoding="utf-8") as handle:
         return json.load(handle)
 
 
@@ -106,7 +106,7 @@ def main():
 
     payload = {"data": list(traces.values())}
     out_path = os.path.join(run_dir, "raw_trace_data.json")
-    with open(out_path, "w") as handle:
+    with open(out_path, "w", encoding="utf-8") as handle:
         json.dump(payload, handle)
 
     size_mb = os.path.getsize(out_path) / (1024 * 1024)
@@ -115,4 +115,9 @@ def main():
 
 
 if __name__ == "__main__":
-    main()
+    # Every run is also saved to results/ as a numbered, timestamped text, CSV
+    # and PDF report, so the terminal output is never the only copy.
+    from run_report import RunReport
+
+    with RunReport("scenario-4", "extract_data"):
+        main()
