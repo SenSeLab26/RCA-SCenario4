@@ -120,7 +120,7 @@ def main():
             continue
 
         all_rows = [r for _, _, rows in entries for r in rows]
-        with open(path, "w", newline="") as handle:
+        with open(path, "w", newline="", encoding="utf-8") as handle:
             writer = csv.DictWriter(handle, fieldnames=COLUMNS)
             writer.writeheader()
             writer.writerows(all_rows)
@@ -152,4 +152,9 @@ def main():
 
 
 if __name__ == "__main__":
-    main()
+    # Every run is also saved to results/ as a numbered, timestamped text, CSV
+    # and PDF report, so the terminal output is never the only copy.
+    from run_report import RunReport
+
+    with RunReport("scenario-4", "build_scenario_datasets"):
+        main()
