@@ -125,46 +125,91 @@ important knob in the whole scenario:
 
 ## 4. Prerequisites
 
-- Docker Desktop or OrbStack, **running**
-- `kind` and `kubectl`: `brew install kind kubectl`
-- Python 3.10+
+| Requirement | macOS | Windows | Linux |
+| --- | --- | --- | --- |
+| Container runtime | Docker Desktop or OrbStack, **running** | Docker Desktop with the **WSL 2** backend, **running** | Docker Engine |
+| `kind` | `brew install kind` | `winget install Kubernetes.kind` | `go install` or the release binary |
+| `kubectl` | `brew install kubectl` | `winget install Kubernetes.kubectl` | `snap install kubectl --classic` |
+| Python | 3.10 or newer | 3.10 or newer, from python.org, **Add python.exe to PATH** ticked | 3.10 or newer |
+| A bash shell | built in | **Git Bash**, installed with Git for Windows, or WSL 2 | built in |
 
-The cluster is five containers plus two Python processes. If your machine is
-tight on RAM, lower `--rps` rather than adding nodes.
+**Windows users, read this before starting.** Three of the helper scripts here
+are shell scripts (`cluster_up.sh`, `reset_cluster.sh`, `cluster_down.sh`), and
+they need a bash shell. You almost certainly already have one: Git for Windows
+installs **Git Bash**, and Docker Desktop requires **WSL 2**. Either will run
+them unchanged. Open Git Bash in this folder and follow the commands exactly as
+written. Everything else in the scenario is Python and runs the same everywhere.
+
+The cluster is five containers plus two Python processes, so it wants roughly
+4 GB of memory free. If your machine is tight on RAM, lower `--rps` rather than
+adding nodes. On Windows, give WSL 2 at least 4 GB in `%UserProfile%\.wslconfig`
+if the cluster fails to become Ready.
 
 ---
 
 ## 5. Running it
 
+### 5.1 Create the Python environment
+
+Run these from inside `RCA-SCenario4`.
+
+| Step | macOS, Linux, Git Bash | Windows PowerShell |
+| --- | --- | --- |
+| Create | `python3 -m venv scene4` | `py -3 -m venv scene4` |
+| Activate | `source scene4/bin/activate` | `.\scene4\Scripts\Activate.ps1` |
+
+```
+python -m pip install --upgrade pip
+python -m pip install -r requirements.txt
+```
+
+With the environment active, `python` means this environment's Python on every
+operating system, which is why the commands below say `python` and not
+`./scene4/bin/python`.
+
+### 5.2 Build the cluster and run the experiment
+
 ```bash
-cd RCA-SCenario4
-
-python3 -m venv scene4
-./scene4/bin/pip install -r requirements.txt
-
-# Step 1+2: build the cluster, deploy everything, confirm a healthy baseline
+# Step 1+2: build the cluster, deploy everything, confirm a healthy baseline.
+# On Windows, run this line from Git Bash.
 bash scripts/cluster_up.sh
 
 # Step 3+4: traffic for 5 minutes, node killed at T+60, keep hammering while it heals
-./scene4/bin/python scripts/load_generator.py --duration 300 --rps 42 --chaos-at 60
-
-# Step 5: pull the traces and flatten them into a labelled time series.
-# Set RUN to the run id the load generator printed. Never type angle brackets -
-# zsh treats < and > as redirection and will fail with "parse error near '\n'".
-RUN=runs/run_20260728_141846_node
-./scene4/bin/python scripts/extract_data.py  --run-dir "$RUN"
-./scene4/bin/python scripts/build_dataset.py --run-dir "$RUN"
-
-# Step 6: train the recovery-time forecaster
-./scene4/bin/python scripts/forecast_recovery.py
+python scripts/load_generator.py --duration 300 --rps 42 --chaos-at 60
 ```
 
-Or let the shell pick the most recent run for you:
+### 5.3 Turn the run into a dataset and a prediction
+
+Set `RUN` to the run folder the load generator printed. Never type the angle
+brackets from an example: both bash and PowerShell read `<` and `>` as
+redirection, which is what produces `parse error near '\n'`.
 
 ```bash
+# macOS, Linux, Git Bash
+RUN=runs/run_20260728_141846_node
+python scripts/extract_data.py  --run-dir "$RUN"
+python scripts/build_dataset.py --run-dir "$RUN"
+python scripts/forecast_recovery.py
+```
+
+```powershell
+# Windows PowerShell
+$RUN = "runs\run_20260728_141846_node"
+python scripts\extract_data.py  --run-dir $RUN
+python scripts\build_dataset.py --run-dir $RUN
+python scripts\forecast_recovery.py
+```
+
+To let the shell pick the most recent run instead of typing its name:
+
+```bash
+# macOS, Linux, Git Bash
 RUN=$(ls -dt runs/*/ | head -1)
-./scene4/bin/python scripts/extract_data.py  --run-dir "$RUN"
-./scene4/bin/python scripts/build_dataset.py --run-dir "$RUN"
+```
+
+```powershell
+# Windows PowerShell
+$RUN = (Get-ChildItem runs -Directory | Sort-Object LastWriteTime -Descending)[0].FullName
 ```
 
 `cluster_up.sh` prints the run command with the right flags, and each script
@@ -257,7 +302,56 @@ Varying the runs makes the model better and the evaluation harder: use
 
 ---
 
-## 7. Files
+### Autoregression: is it still getting worse, or settling?
+
+The recovery-time model answers "how much longer?". A second, simpler question
+matters just as much while an incident is running: is the response time still
+climbing, or has it turned the corner? Because the telemetry is a time series,
+the natural model is autoregression, which predicts the next second from the last
+few seconds. `evaluate_scenario_models.py` reports it alongside the other models,
+leave-one-incident-out, on the 95th percentile latency curve:
+
+| Model | MAE | RMSE | R² |
+| --- | --- | --- | --- |
+| AR(5) | 491 ms | **1,042 ms** | **0.749** |
+| Linear Regression on elapsed time | 1,766 ms | 2,129 ms | -0.047 |
+| Last value carried forward | **371 ms** | 1,116 ms | 0.713 |
+
+Two honest readings. First, the straight-line model is useless here, with an R²
+below zero, meaning it is worse than simply predicting the average. A node
+failure is a step change, not a trend. Second, the naive "assume nothing changes"
+baseline has the lowest average error, because for most seconds nothing does
+change. Autoregression wins on RMSE and R², which is the more informative
+comparison: those measure the large errors, and the large errors happen exactly
+at the moments that matter, when latency is moving fast. The naive baseline is
+always one step behind a change; the AR model is not.
+
+---
+
+## 7. Every Run Is Saved Automatically
+
+Terminal output scrolls away and is hard to compare between runs, so every script
+here writes what it printed into a `results/` folder as well as to the screen:
+
+```text
+results/run_003_20260821_143012_evaluate_model.txt   full console transcript
+results/run_003_20260821_143012_evaluate_model.csv   one row per score
+results/run_003_20260821_143012_evaluate_model.pdf   the transcript, paginated
+```
+
+The run number counts the reports already present, so runs stay in order and
+nothing is ever overwritten. Use the **CSV** when comparing several runs, because
+every score is one row with its run number, timestamp, section, model, metric and
+value. Use the **PDF** when attaching a run to an email, a report appendix or a
+supervision meeting.
+
+This behaviour needs no flags and no extra commands. It is provided by
+`run_report.py`, which uses only the standard library, plus matplotlib for the
+PDF. If matplotlib is missing, the text and CSV reports are still written.
+
+---
+
+## 8. Files
 
 ```text
 RCA-SCenario4/
@@ -289,7 +383,7 @@ RCA-SCenario4/
 
 ---
 
-## 8. Differences from Scenarios 1-3
+## 9. Differences from Scenarios 1-3
 
 | | Scenarios 1-3 | Scenario 4 |
 | --- | --- | --- |
