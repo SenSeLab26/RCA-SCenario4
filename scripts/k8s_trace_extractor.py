@@ -38,7 +38,7 @@ def fetch_traces(from_file=None):
     """Return the list of traces, either from Jaeger or from a saved export."""
     if from_file:
         print(f"Loading traces from file: {from_file}")
-        with open(from_file) as handle:
+        with open(from_file, encoding="utf-8") as handle:
             return json.load(handle).get("data", [])
 
     print(f"Querying Jaeger API for service: {SERVICE_NAME}...")
