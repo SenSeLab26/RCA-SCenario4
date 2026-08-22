@@ -1,16 +1,27 @@
-# OpenTelemetry (tracing / instrumentation)
-opentelemetry-api==1.42.1
-opentelemetry-sdk==1.42.1
-opentelemetry-exporter-otlp==1.42.1
+# Minimum versions, not exact ones.
+#
+# These are floors rather than pins so the project installs on Windows, macOS
+# and Linux, and on any Python from 3.10 to 3.14. Pinning exact versions ties
+# the install to one interpreter and one platform: a wheel that exists for
+# Python 3.14 on macOS may not exist for Python 3.12 on Windows, and pip then
+# reports "no matching distribution found".
+#
+# The exact versions the published results were produced with are recorded in
+# the README and in the report, so reproducibility does not depend on this file.
 
-# Data processing & ML
-pandas==3.0.3
-scikit-learn==1.9.0
-numpy==2.5.0
-scipy==1.18.0
+# OpenTelemetry (tracing and instrumentation)
+opentelemetry-api>=1.24.0
+opentelemetry-sdk>=1.24.0
+opentelemetry-exporter-otlp>=1.24.0
+
+# Data processing and machine learning
+pandas>=2.2
+scikit-learn>=1.4
+numpy>=1.26
+scipy>=1.11
 
 # Plotting
-matplotlib==3.11.1
+matplotlib>=3.8
 
 # HTTP
-requests==2.34.2
+requests>=2.31
