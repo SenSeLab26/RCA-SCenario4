@@ -52,14 +52,14 @@ def load_run(run_dir):
     if not (os.path.exists(metrics_path) and os.path.exists(chaos_path)):
         return None, None, None
 
-    with open(chaos_path) as handle:
+    with open(chaos_path, encoding="utf-8") as handle:
         chaos = json.load(handle)
     fault = chaos.get("fault") or MODE_TO_FAULT.get(chaos.get("mode"), chaos.get("mode"))
     fault_at = chaos.get("fault_at")
     if not (fault and fault_at):
         return None, None, None
 
-    with open(metrics_path) as handle:
+    with open(metrics_path, encoding="utf-8") as handle:
         raw = list(csv.DictReader(handle))
 
     # Time every row relative to the fault ourselves, rather than trusting the
